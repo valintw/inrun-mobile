@@ -906,7 +906,7 @@ function findSegment(z) { return segments[Math.floor(z / SEG_LEN) % segments.len
    ====================================================================== */
 let state = 'title';
 let position = 0, speed = 0, playerX = 0, playerY = 0;
-let timeLeft = START_TIME, score = 0, stagesCleared = 0, curStage = 0, topSpeed = 0;
+let lap = 0, timeLeft = START_TIME, score = 0, stagesCleared = 0, curStage = 0, topSpeed = 0;
 let bgOffset = 0, shake = 0, countdown = 0, msgTimer = 0;
 let themeFrom = 0, themeTo = 0, themeBlend = 1;
 let hiScore = parseInt(store('inrun_hi') || '0', 10) || 0;
@@ -1258,9 +1258,11 @@ function update(dt) {
       stagesCleared++;
       const bonus = Math.max(25, 48 - stagesCleared * 2);
       timeLeft += bonus; score += 2500 * stagesCleared;
-      setMsg(wrapped ? 'LAP COMPLETE!' : 'CHECKPOINT!', '+' + bonus + ' SEC  ·  ' + THEMES[curStage].name); msgTimer = 2.5;
+      if (wrapped) lap++;
+      setMsg(wrapped ? 'LAP ' + lap + ' COMPLETE!' : 'CHECKPOINT!', '+' + bonus + ' SEC  ·  ' + THEMES[curStage].name); msgTimer = 2.5;
       sfxCheckpoint();
-      if (setEra(Math.min(stagesCleared, N_ERAS - 1))) announceEra();
+      // a new era of graphics for every full cycle of the stages
+      if (wrapped && setEra(Math.min(lap, N_ERAS - 1))) announceEra();
     }
   }
   if (themeBlend < 1) themeBlend = Math.min(1, themeBlend + dt / 2.5);
@@ -1494,7 +1496,7 @@ function updateHUD() {
   setText(hud.time, 't', String(Math.ceil(timeLeft)));
   hud.time.classList.toggle('low', timeLeft < 10 && state === 'race');
   setText(hud.stageNum, 'n', String(stagesCleared + 1));
-  setText(hud.stageName, 'm', THEMES[curStage].name);
+  setText(hud.stageName, 'm', THEMES[curStage].name + ' &middot; ' + ERAS[era].year);
   setText(hud.speed, 'v', kmh + '<small> KM/H</small>');
   setText(hud.gear, 'g', speed / MAX_SPEED < 0.5 ? 'GEAR LOW' : 'GEAR HIGH');
   const lit = Math.round(speed / MAX_SPEED * TACH_N);
@@ -1555,7 +1557,10 @@ async function startGame() {
   themeFrom = themeTo = 0; themeBlend = 1; bgOffset = 0; particles.length = 0;
   const qs = parseInt(new URLSearchParams(location.search).get('stage'), 10);
   if (qs > 1 && qs <= N_STAGES) { const i = segments.findIndex(sg => sg.stage === qs - 1); position = i * SEG_LEN; curStage = themeFrom = themeTo = stagesCleared = qs - 1; }
-  setEra(Math.min(stagesCleared, N_ERAS - 1)); announceEra();
+  lap = 0;
+  const qe = parseInt(new URLSearchParams(location.search).get('era'), 10);
+  if (qe > 1 && qe <= N_ERAS) lap = qe - 1;
+  setEra(Math.min(lap, N_ERAS - 1)); announceEra();
   resetCars();
   showPanel(null); setHUD(true);
   $('rotate').style.display = 'none';

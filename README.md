@@ -3,9 +3,9 @@
 An arcade sunset driving game in a single HTML file, built for phones. You steer and work the pedals by tilting the phone.
 
 ## A drive through gaming time
-Each checkpoint moves the graphics (and music) forward an era:
+Every full lap (all five stages) moves the graphics and music forward an era:
 
-| Stage | Era | Look |
+| Lap | Era | Look |
 |---|---|---|
 | 1 | 1987 · EGA | ~120 lines, fixed 16-colour EGA palette with ordered dithering, CRT scanlines, PC-speaker beeps |
 | 2 | 1989 · Amiga | 180 lines, 32 colours picked live from a 4096-colour (12-bit) range, 4-channel style music |
@@ -13,7 +13,7 @@ Each checkpoint moves the graphics (and music) forward an era:
 | 4 | 1996 · SVGA | 480 lines, smooth scaling, shaded sprites and true colour |
 | 5 | Today · HD | native resolution, detailed sprites, shadows, atmospheric haze, bloom, lens flare, vignette, richer synths |
 
-After stage 5 the game stays in HD. The title screen cycles through all five eras.
+From lap 5 onward the game stays in HD. The title screen cycles through all five eras.
 
 ## Controls
 - **Hold the phone sideways** like a steering wheel.
@@ -35,4 +35,4 @@ After stage 5 the game stays in HD. The title screen cycles through all five era
 Browsers only send tilt-sensor data to pages served over **HTTPS**. The easiest way is GitHub Pages
 (Settings → Pages → deploy from this branch, root folder). On iPhone you'll be asked to allow motion access when you tap START.
 
-Add `?stage=2` … `?stage=5` to the URL to start on a later stage (and its era).
+Add `?stage=2` … `?stage=5` to the URL to start on a later stage, and `?era=2` … `?era=5` to start in a later era (they can be combined, e.g. `?era=5&stage=3`).
