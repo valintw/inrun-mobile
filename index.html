@@ -78,7 +78,7 @@
     background:linear-gradient(180deg,#fff 0%,#ffe14d 35%,#ff8a3d 55%,#ff3d9a 75%,#7a2cff 100%);
     -webkit-background-clip:text; background-clip:text; color:transparent; filter: drop-shadow(4px 4px 0 #000); font-style:italic; }
   .tag { margin-top:10px; font-size:clamp(8px,min(1.8vw,3.2vh),14px); color:var(--cyan); }
-  .how { margin:12px auto 0; font-size:clamp(7px,min(1.3vw,2.7vh),11px); line-height:2; max-width:560px; color:#ddd; }
+  .how { margin:12px auto 0; font-size:clamp(7px,min(1.3vw,2.7vh),11px); line-height:2; max-width:760px; color:#ddd; }
   .how b { color:var(--yellow); font-weight:normal; }
   .row { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; margin-top:min(18px,3vh); }
   button.big { font:inherit; font-size:clamp(11px,min(2.2vw,4vh),18px); padding:min(16px,3vh) 26px; color:#000; background:var(--yellow); border:0; border-radius:8px;
@@ -93,6 +93,12 @@
   #pause .col { display:flex; flex-direction:column; gap:min(10px,1.8vh); }
   #over .res { font-size:clamp(10px,1.8vw,14px); line-height:2.2; }
   #over .res b { color:var(--cyan); font-weight:normal; }
+  #camBox { position:absolute; left:max(14px, env(safe-area-inset-left)); bottom:calc(max(10px, env(safe-area-inset-bottom)) + clamp(90px,17vh,140px));
+    width:clamp(120px,16vw,200px); aspect-ratio:4/3; border:2px solid rgba(255,255,255,.7); background:#000; display:none; overflow:hidden; }
+  #camBox video, #camBox canvas { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; transform:scaleX(-1); }
+  #camBox video { opacity:.75; }
+  #camStatus { position:absolute; left:4px; top:4px; font-size:7px; color:var(--yellow); text-shadow:1px 1px 0 #000; }
+  .kbd { display:inline-block; border:1px solid rgba(255,255,255,.6); padding:2px 4px; margin:0 1px; border-radius:3px; }
   #rotate { position:fixed; left:0; right:0; bottom:max(14px, env(safe-area-inset-bottom)); text-align:center; font-size:9px; color:var(--yellow); z-index:11; display:none; }
 </style>
 </head>
@@ -108,6 +114,7 @@
     <div><div class="mlbl">GAS</div><div id="pedal"><div id="pedalFill"></div></div><div class="mlbl" style="margin:6px 0 0">BRK</div></div>
     <div><div class="mlbl">STEER</div><div id="steerBar"><div id="steerKnob"></div></div></div>
   </div>
+  <div id="camBox"><video id="camVideo" playsinline muted></video><canvas id="camCanvas" width="160" height="120"></canvas><div id="camStatus">CAMERA</div></div>
   <div id="msg" class="sh"></div>
   <div id="toast"></div>
 </div>
@@ -122,8 +129,13 @@
 
 <div id="title" class="panel show">
   <div class="logo">INRUN</div>
-  <div class="tag">A TILT-POWERED SUNSET DRIVE</div>
-  <div class="how">
+  <div class="tag">A SUNSET ARCADE DRIVE</div>
+  <div class="how" id="howDesk" style="display:none">
+    <b>Move your head left / right</b> to steer (webcam), or use <span class="kbd">&larr;</span><span class="kbd">&rarr;</span><br>
+    Bottom row is your pedal: <span class="kbd">Z</span> full brake &middot; <span class="kbd">X</span><span class="kbd">C</span> lighter brake &middot; <span class="kbd">V</span> coast &middot; <span class="kbd">B</span><span class="kbd">N</span> part throttle &middot; <span class="kbd">M</span> full throttle<br>
+    Reach each checkpoint before the clock runs out.
+  </div>
+  <div class="how" id="howTouch">
     Hold your phone <b>sideways</b> like a steering wheel.<br>
     <b>Tilt left / right</b> to steer &middot; <b>Tilt forward</b> to accelerate &middot; <b>Tilt back</b> to brake<br>
     Reach each checkpoint before the clock runs out.
@@ -135,8 +147,10 @@
     <button class="alt" id="modeBtn">CONTROLS: TILT</button>
   </div>
   <div class="hi">HI-SCORE <span id="hiTitle">0</span></div>
-  <div class="note">Your driving position is calibrated during the 3-2-1 countdown, so hold the phone how you like.<br>
-    Tilt sensors need the page served over HTTPS. Desktop: arrow keys / WASD, P to pause.</div>
+  <div class="note" id="noteTouch">Your driving position is calibrated during the 3-2-1 countdown, so hold the phone how you like.<br>
+    Tilt sensors need the page served over HTTPS.</div>
+  <div class="note" id="noteDesk" style="display:none">Sit centred in front of the camera during the 3-2-1 countdown &mdash; that sets your straight-ahead position.<br>
+    The camera image stays on your computer. Arrow keys / WASD also work. P to pause.</div>
 </div>
 
 <div id="pause" class="panel">
@@ -149,7 +163,7 @@
     <button class="alt" id="modeBtn2">CONTROLS: TILT</button>
     <button class="alt" id="quitBtn">QUIT</button>
   </div>
-  <div class="note">Resuming re-calibrates your neutral tilt.</div>
+  <div class="note">Resuming re-calibrates your neutral position.</div>
 </div>
 
 <div id="over" class="panel">
@@ -668,7 +682,7 @@ const settings = {
   sens: parseInt(store('inrun_sens') || '1', 10),
   sound: store('inrun_snd') !== '0',
 };
-const SENS = [{n:'LOW', r:34}, {n:'MEDIUM', r:24}, {n:'HIGH', r:16}];
+const SENS = [{n:'LOW', r:34, c:0.17}, {n:'MEDIUM', r:24, c:0.12}, {n:'HIGH', r:16, c:0.08}];
 const particles = [];
 
 /* ======================================================================
@@ -678,7 +692,7 @@ const keys = { left:false, right:false, up:false, down:false };
 const touch = { left:false, right:false, gas:false, brake:false };
 const tilt = { ok:false, last:0, steer:0, pitch:0, neutral:null, samples:[] };
 const input = { steer:0, throttle:0 };
-const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+const isTouch = window.matchMedia ? matchMedia('(pointer: coarse)').matches : ('ontouchstart' in window);
 
 function screenAngle() {
   if (screen.orientation && typeof screen.orientation.angle === 'number') return screen.orientation.angle;
@@ -711,13 +725,95 @@ async function enableSensors() {
   return true;
 }
 
+// bottom keyboard row = analogue pedal: Z full brake ... V coast ... M full throttle
+const PEDAL_KEYS = { KeyZ:-1, KeyX:-2/3, KeyC:-1/3, KeyV:0, KeyB:1/3, KeyN:2/3, KeyM:1 };
+const pedalHeld = [];   // most recently pressed last
+
+/* ---------- webcam head tracking (MediaPipe face detector, loaded on demand) ---------- */
+const MP_VER = '0.10.14';
+const MP_BASE = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@' + MP_VER;
+const FACE_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite';
+const cam = { stream:null, detector:null, loading:null, ok:false, last:0, x:0.5, raw:0.5, box:null, neutral:null, samples:[], lastT:-1, lastRun:0, failed:false };
+const camVideo = document.getElementById('camVideo'), camCanvas = document.getElementById('camCanvas'), camCtx = camCanvas.getContext('2d');
+async function enableWebcam() {
+  if (cam.stream) { loadDetector(); return true; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false;
+  try {
+    cam.stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 320 }, height: { ideal: 240 }, facingMode: 'user' }, audio: false });
+  } catch (e) { return false; }
+  camVideo.srcObject = cam.stream;
+  try { await camVideo.play(); } catch (e) {}
+  loadDetector();
+  return true;
+}
+function stopWebcam() {
+  if (cam.stream) cam.stream.getTracks().forEach(t => t.stop());
+  cam.stream = null; cam.ok = false; camVideo.srcObject = null;
+}
+function loadDetector() {
+  if (cam.detector || cam.loading) return cam.loading;
+  cam.loading = (async () => {
+    try {
+      const vision = await import(MP_BASE + '/vision_bundle.mjs');
+      const files = await vision.FilesetResolver.forVisionTasks(MP_BASE + '/wasm');
+      const make = delegate => vision.FaceDetector.createFromOptions(files, {
+        baseOptions: { modelAssetPath: FACE_MODEL, delegate }, runningMode: 'VIDEO', minDetectionConfidence: 0.5 });
+      try { cam.detector = await make('GPU'); } catch (e) { cam.detector = await make('CPU'); }
+    } catch (e) {
+      cam.failed = true; console.warn('Face detector failed to load', e);
+      toast('HEAD TRACKING UNAVAILABLE — USE ARROW KEYS');
+    }
+    cam.loading = null;
+  })();
+  return cam.loading;
+}
+function camTick(now) {
+  if (!cam.stream || !cam.detector || camVideo.readyState < 2) return;
+  if (now - cam.lastRun < 33 || camVideo.currentTime === cam.lastT) return;   // ~30 Hz
+  cam.lastRun = now; cam.lastT = camVideo.currentTime;
+  let res;
+  try { res = cam.detector.detectForVideo(camVideo, now); } catch (e) { return; }
+  const d = res && res.detections && res.detections[0];
+  if (!d) { cam.box = null; return; }
+  const vw = camVideo.videoWidth || 320, vh = camVideo.videoHeight || 240, bb = d.boundingBox;
+  cam.raw = (bb.originX + bb.width / 2) / vw;
+  cam.x += (cam.raw - cam.x) * 0.5;                       // light smoothing
+  cam.box = [bb.originX / vw, bb.originY / vh, bb.width / vw, bb.height / vh];
+  cam.ok = true; cam.last = now;
+  if (state === 'countdown') cam.samples.push(cam.x);
+}
+function drawCamPreview() {
+  const c = camCtx, w = camCanvas.width, h = camCanvas.height;
+  c.clearRect(0, 0, w, h);
+  let status = 'CAMERA';
+  if (cam.failed) status = 'TRACKING OFF';
+  else if (!cam.detector) status = 'LOADING...';
+  else if (!cam.box) status = 'NO FACE';
+  else status = 'TRACKING';
+  if (cam.neutral !== null) {         // neutral line (canvas is mirrored by CSS, so use raw coords)
+    c.fillStyle = 'rgba(255,255,255,.6)'; c.fillRect(cam.neutral * w - 1, 0, 2, h);
+  }
+  if (cam.box) {
+    c.strokeStyle = '#3df2ff'; c.lineWidth = 2;
+    c.strokeRect(cam.box[0] * w, cam.box[1] * h, cam.box[2] * w, cam.box[3] * h);
+    c.fillStyle = '#ff3d9a'; c.fillRect(cam.x * w - 2, cam.box[1] * h + cam.box[3] * h / 2 - 2, 4, 4);
+  }
+  const el = document.getElementById('camStatus');
+  if (el.textContent !== status) el.textContent = status;
+}
+
 const KEYMAP = { ArrowLeft:'left', KeyA:'left', ArrowRight:'right', KeyD:'right', ArrowUp:'up', KeyW:'up', ArrowDown:'down', KeyS:'down' };
 addEventListener('keydown', e => {
   if (KEYMAP[e.code]) { keys[KEYMAP[e.code]] = true; e.preventDefault(); }
+  if (e.code in PEDAL_KEYS && !e.repeat) { const i = pedalHeld.indexOf(e.code); if (i >= 0) pedalHeld.splice(i, 1); pedalHeld.push(e.code); e.preventDefault(); }
   if (e.code === 'KeyP' || e.code === 'Escape') { if (state === 'race') pauseGame(); else if (state === 'paused') resumeGame(); }
   if ((e.code === 'Enter' || e.code === 'Space') && (state === 'title' || state === 'over')) startGame();
 });
-addEventListener('keyup', e => { if (KEYMAP[e.code]) { keys[KEYMAP[e.code]] = false; e.preventDefault(); } });
+addEventListener('keyup', e => {
+  if (KEYMAP[e.code]) { keys[KEYMAP[e.code]] = false; e.preventDefault(); }
+  if (e.code in PEDAL_KEYS) { const i = pedalHeld.indexOf(e.code); if (i >= 0) pedalHeld.splice(i, 1); }
+});
+addEventListener('blur', () => { pedalHeld.length = 0; for (const k in keys) keys[k] = false; });
 
 function bindTouch(id, key) {
   const el = document.getElementById(id);
@@ -733,11 +829,17 @@ function dz(v, dead, full) { const a = Math.abs(v); if (a < dead) return 0; retu
 function readInput(dt) {
   let ks = (keys.left || touch.left ? -1 : 0) + (keys.right || touch.right ? 1 : 0);
   let kt = (keys.up || touch.gas ? 1 : 0) - (keys.down || touch.brake ? 1 : 0);
+  if (pedalHeld.length) kt = PEDAL_KEYS[pedalHeld[pedalHeld.length - 1]];
+  const camLive = settings.mode === 'webcam' && cam.ok && performance.now() - cam.last < 600;
+  if (camLive && cam.neutral === null && state === 'race') cam.neutral = cam.x;
   const tiltLive = settings.mode === 'tilt' && tilt.ok && performance.now() - tilt.last < 1000 && tilt.neutral !== null;
   let ts = ks, tt = kt, rate = 5;
   if (tiltLive) {
     if (ks === 0) { ts = dz(tilt.steer, 2, SENS[settings.sens].r); rate = 14; }
-    if (kt === 0) { tt = dz(tilt.pitch - tilt.neutral, 4, 18) * (settings.invert ? -1 : 1); }
+    if (kt === 0 && !pedalHeld.length) { tt = dz(tilt.pitch - tilt.neutral, 4, 18) * (settings.invert ? -1 : 1); }
+  } else if (camLive && cam.neutral !== null && ks === 0) {
+    // camera image is not mirrored: moving your head to your left moves the face right in the frame
+    ts = dz(cam.neutral - cam.x, 0.02, SENS[settings.sens].c); rate = 10;
   }
   input.steer += (ts - input.steer) * Math.min(1, dt * rate);
   if (Math.abs(input.steer) < 0.01 && ts === 0) input.steer = 0;
@@ -833,6 +935,9 @@ function update(dt) {
         tilt.neutral = s[Math.floor(s.length / 2)];
       } else if (tilt.ok) tilt.neutral = tilt.pitch;
       tilt.samples = [];
+      if (cam.samples.length > 3) { const c = cam.samples.slice(-45).sort((a, b) => a - b); cam.neutral = c[Math.floor(c.length / 2)]; }
+      else cam.neutral = null;   // set on first detection
+      cam.samples = [];
       state = 'race'; setMsg('GO!', ''); msgTimer = 1; sfxBeep(true);
       if (settings.mode === 'tilt' && !tilt.ok && isTouch) { setMode('touch'); toast('NO TILT SENSOR FOUND — TOUCH CONTROLS ON'); }
     }
@@ -1099,11 +1204,15 @@ function setHUD(on) { $('hud').style.display = on ? 'block' : 'none'; $('pauseBt
 function updateTouchUI() {
   const showTouch = settings.mode === 'touch' && isTouch && (state === 'race' || state === 'countdown');
   $('touch').style.display = showTouch ? 'block' : 'none';
-  $('meters').style.display = settings.mode === 'tilt' ? 'flex' : 'none';
+  $('meters').style.display = settings.mode === 'touch' ? 'none' : 'flex';
+  $('camBox').style.display = settings.mode === 'webcam' && cam.stream ? 'block' : 'none';
 }
+const MODES = isTouch ? ['tilt', 'touch'] : ['webcam', 'keys'];
+const MODE_LABEL = { tilt: 'TILT', touch: 'TOUCH', webcam: 'HEAD (WEBCAM)', keys: 'KEYBOARD' };
 function setMode(m) {
   settings.mode = m; store('inrun_mode', m);
-  const label = 'CONTROLS: ' + (m === 'tilt' ? 'TILT' : 'TOUCH');
+  if (m !== 'webcam' && cam.stream) stopWebcam();
+  const label = 'CONTROLS: ' + MODE_LABEL[m];
   $('modeBtn').textContent = label; $('modeBtn2').textContent = label;
   updateTouchUI();
 }
@@ -1119,6 +1228,10 @@ async function startGame() {
   initAudio();
   const needsPerm = typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function';
   if (!needsPerm) goFullscreen();
+  if (settings.mode === 'webcam') {
+    const ok = await enableWebcam();
+    if (!ok) { setMode('keys'); toast('NO CAMERA ACCESS — KEYBOARD CONTROLS'); }
+  }
   if (settings.mode === 'tilt') {
     const ok = await enableSensors();
     if (!ok && isTouch) { setMode('touch'); toast('TILT PERMISSION DENIED — TOUCH CONTROLS ON'); }
@@ -1133,7 +1246,7 @@ async function startGame() {
   $('rotate').style.display = 'none';
   beginCountdown();
 }
-function beginCountdown() { state = 'countdown'; countdown = 3; showCountdown.last = -1; tilt.samples = []; updateTouchUI(); }
+function beginCountdown() { state = 'countdown'; countdown = 3; showCountdown.last = -1; tilt.samples = []; cam.samples = []; updateTouchUI(); }
 function goFullscreen() {
   const el = document.documentElement;
   const rf = el.requestFullscreen || el.webkitRequestFullscreen;
@@ -1167,7 +1280,11 @@ $('pauseBtn').addEventListener('click', pauseGame);
 $('invertBtn').addEventListener('click', () => { settings.invert = !settings.invert; store('inrun_inv', settings.invert ? '1' : '0'); refreshSettingsUI(); });
 $('sensBtn').addEventListener('click', () => { settings.sens = (settings.sens + 1) % SENS.length; store('inrun_sens', String(settings.sens)); refreshSettingsUI(); });
 $('soundBtn').addEventListener('click', () => { setSound(!settings.sound); refreshSettingsUI(); });
-const toggleMode = () => setMode(settings.mode === 'tilt' ? 'touch' : 'tilt');
+const toggleMode = async () => {
+  const next = MODES[(MODES.indexOf(settings.mode) + 1) % MODES.length];
+  setMode(next);
+  if (next === 'webcam' && (state === 'paused')) { if (!(await enableWebcam())) { setMode('keys'); toast('NO CAMERA ACCESS — KEYBOARD CONTROLS'); } }
+};
 $('modeBtn').addEventListener('click', toggleMode);
 $('modeBtn2').addEventListener('click', toggleMode);
 document.addEventListener('visibilitychange', () => { if (document.hidden) pauseGame(); });
@@ -1187,6 +1304,7 @@ function frame(now) {
   }
   render();
   if (state !== 'title') updateHUD();
+  if (settings.mode === 'webcam' && cam.stream) { camTick(now); if (state !== 'title') drawCamPreview(); }
   updateEngine();
   requestAnimationFrame(frame);
 }
@@ -1196,7 +1314,8 @@ resize();
 buildTrack();
 resetCars();
 refreshSettingsUI();
-if (!isTouch && settings.mode === 'tilt') setMode('touch'); // desktop: keyboard (touch UI stays hidden)
+if (!MODES.includes(settings.mode)) setMode(MODES[0]);
+if (!isTouch) { ['howDesk', 'noteDesk'].forEach(id => $(id).style.display = ''); ['howTouch', 'noteTouch'].forEach(id => $(id).style.display = 'none'); }
 requestAnimationFrame(frame);
 })();
 </script>
