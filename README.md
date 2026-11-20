@@ -11,9 +11,9 @@ Every full lap (all five stages) moves the graphics and music forward an era:
 | 2 | 1989 · Amiga | 180 lines, 32 colours picked live from a 4096-colour (12-bit) range, 4-channel style music |
 | 3 | 1992 · VGA | 240 lines, 256-colour palette picked live, drums and bass |
 | 4 | 1996 · SVGA | 480 lines, smooth scaling, shaded sprites and true colour |
-| 5 | Today · HD | native resolution, detailed sprites, shadows, atmospheric haze, bloom, lens flare, vignette, richer synths |
+| 5 | Today · HD | **real-time 3D** (three.js / WebGL): modelled cars with clearcoat paint and reflections, 3D palms, pines, cacti, rocks, billboards, street lamps and lit skyscrapers, sun lighting with soft shadows, fog, filmic tone mapping, bloom and a chase camera |
 
-From lap 5 onward the game stays in HD. The title screen cycles through all five eras.
+From lap 5 onward the game stays in HD. The 3D engine downloads in the background after the page loads (from jsDelivr); if WebGL isn't available the HD era falls back to the 2D renderer. The title screen cycles through all five eras.
 
 ## Controls
 - **Hold the phone sideways** like a steering wheel.
