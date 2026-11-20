@@ -171,6 +171,8 @@
     Tilt sensors need the page served over HTTPS.</div>
   <div class="note" id="noteDesk" style="display:none">Sit centred in front of the camera during the 3-2-1 countdown &mdash; that sets your straight-ahead position.<br>
     The camera image stays on your computer. Arrow keys / WASD also work. P to pause.</div>
+  <div class="note" style="margin-top:6px">HD-era car: &ldquo;Car Concept&rdquo; &copy; 2024 Darmstadt Graphics Group GmbH (Eric Chadwick),
+    <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener" style="color:#aaa">CC BY 4.0</a>, modified &mdash; see assets/CREDITS.md</div>
 </div>
 
 <div id="pause" class="panel">
@@ -2007,6 +2009,60 @@ function build3D(T, A) {
   }
   scene.add(player);
 
+  // ---------- glTF hero car (CC BY 4.0 — see assets/CREDITS.md); procedural model stays as fallback ----------
+  (async () => {
+    try {
+      const [{ GLTFLoader }, { MeshoptDecoder }] = await Promise.all([
+        import('three/addons/loaders/GLTFLoader.js'), import('three/addons/libs/meshopt_decoder.module.js')]);
+      const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
+      const gltf = await loader.loadAsync('assets/car.glb');
+      const car = gltf.scene;
+      const glass = new T.MeshPhysicalMaterial({ color: 0x0a0d12, roughness: 0.04, metalness: 0.2, clearcoat: 1, transparent: true, opacity: 0.6, envMapIntensity: 1.2 });
+      let brake = null;
+      car.traverse(o => {
+        if (!o.isMesh) return;
+        o.castShadow = true; o.receiveShadow = true;
+        const swap = m => {
+          if (m.name === 'Glass') return glass;
+          if (m.name === 'Brakelight') { brake = brake || m; return brake; }
+          if (/Paint/.test(m.name)) m.envMapIntensity = 0.8;
+          return m;
+        };
+        o.material = Array.isArray(o.material) ? o.material.map(swap) : swap(o.material);
+      });
+      if (brake) { brake.emissive = new T.Color(0xff1414); brake.emissiveIntensity = 2; }
+      // wheels: straighten the modelled steering angle, keep calipers fixed, spin the rest
+      const wheels = [];
+      for (const nm of ['WheelFrontL', 'WheelFrontR', 'WheelRearL', 'WheelRearR']) {
+        const w = car.getObjectByName(nm); if (!w) continue;
+        w.quaternion.identity(); w.updateMatrixWorld(true);
+        w.children.filter(c => /BrakePad/.test(c.name)).forEach(p => w.parent.attach(p));
+        wheels.push(w);
+      }
+      // fit to the game: model faces +z (game faces -z), sits on y = 0, ~4.45 m long
+      const box = new T.Box3().setFromObject(car), size = box.getSize(new T.Vector3()), ctr = box.getCenter(new T.Vector3());
+      const sc = 4.45 / size.z;
+      car.scale.setScalar(sc); car.position.set(-ctr.x * sc, -box.min.y * sc, -ctr.z * sc);
+      const holder = new T.Group(); holder.rotation.y = Math.PI; holder.add(car);
+      // slim LED brake-light bar that follows the curve of the rear panel (found by ray-casting the body)
+      holder.updateMatrixWorld(true);
+      const ray = new T.Raycaster(), barMat = brake || R3.playerTail;
+      const meshes = []; car.traverse(o => { if (o.isMesh && o.material !== glass) meshes.push(o); });
+      const barY = 0.64, segW = 0.15;
+      for (let i = -5; i <= 5; i++) {
+        const x = i * segW;
+        ray.set(new T.Vector3(x, barY, 10), new T.Vector3(0, 0, -1));
+        const hit = ray.intersectObjects(meshes, false)[0];
+        if (!hit || hit.point.z < 1.6) continue;
+        const seg = new T.Mesh(new T.BoxGeometry(segW * 1.02, 0.03, 0.02), barMat);
+        seg.position.copy(holder.worldToLocal(hit.point.clone().add(new T.Vector3(0, 0, 0.012)))); holder.add(seg);
+      }
+      player.children.forEach(c => { if (c !== R3.headlight && c !== R3.headlight.target) c.visible = false; });
+      player.add(holder);
+      R3.wheels = wheels; R3.wheelSign = -1; R3.gltfBrake = brake;
+    } catch (e) { console.warn('glTF car unavailable, keeping the procedural model', e); }
+  })();
+
   // ---------- per-frame scratch ----------
   const px = new Float32Array(ROWS), py = new Float32Array(ROWS), pz = new Float32Array(ROWS), ph = new Float32Array(ROWS), pi = new Int32Array(ROWS);
   const Hs = new Float64Array(segments.length + 1);
@@ -2081,9 +2137,10 @@ function build3D(T, A) {
     const ahead = at(pd + 4);
     player.rotateX(Math.atan2(ahead.y - pc.y, 4 * SEG_M));
     wheelSpin -= speed * M3 / 60 / 0.34;
-    for (const w of R3.wheels) w.rotation.x = wheelSpin;
+    for (const w of R3.wheels) w.rotation.x = wheelSpin * (R3.wheelSign || 1);
     const braking = input.throttle < -0.1 || state === 'over';
     R3.playerTail.emissiveIntensity = braking ? 4 : 1.0;
+    if (R3.gltfBrake) R3.gltfBrake.emissiveIntensity = braking ? 9 : 2;
 
     const back = at(pd - 8 / SEG_M);
     if (camH === null) camH = pc.h;

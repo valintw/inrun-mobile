@@ -11,7 +11,7 @@ Every full lap (all five stages) moves the graphics and music forward an era:
 | 2 | 1989 · Amiga | 180 lines, 32 colours picked live from a 4096-colour (12-bit) range, 4-channel style music |
 | 3 | 1992 · VGA | 240 lines, 256-colour palette picked live, drums and bass |
 | 4 | 1996 · SVGA | 480 lines, smooth scaling, shaded sprites and true colour |
-| 5 | Today · HD | **real-time 3D** (three.js / WebGL): modelled cars with clearcoat paint and reflections, 3D palms, pines, cacti, rocks, billboards, street lamps and lit skyscrapers, sun lighting with soft shadows, fog, filmic tone mapping, bloom and a chase camera |
+| 5 | Today · HD | **real-time 3D** (three.js / WebGL): a glTF hero car (metallic-flake clearcoat paint, real wheels and interior), modelled traffic with clearcoat paint and reflections, 3D palms, pines, cacti, rocks, billboards, street lamps and lit skyscrapers, sun lighting with soft shadows, fog, filmic tone mapping, bloom and a chase camera |
 
 From lap 5 onward the game stays in HD. The 3D engine downloads in the background after the page loads (from jsDelivr); if WebGL isn't available the HD era falls back to the 2D renderer. The title screen cycles through all five eras.
 
@@ -36,3 +36,9 @@ Browsers only send tilt-sensor data to pages served over **HTTPS**. The easiest 
 (Settings → Pages → deploy from this branch, root folder). On iPhone you'll be asked to allow motion access when you tap START.
 
 Add `?stage=2` … `?stage=5` to the URL to start on a later stage, and `?era=2` … `?era=5` to start in a later era (they can be combined, e.g. `?era=5&stage=3`).
+
+## Credits
+The HD-era player car is based on **"Car Concept"** © 2024 Darmstadt Graphics Group GmbH (model and textures by Eric Chadwick),
+from the Khronos glTF Sample Assets, licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), modified.
+See [`assets/CREDITS.md`](assets/CREDITS.md) for details of the changes. Keep `assets/` next to `index.html` when hosting;
+if the model can't be loaded the game uses its built-in procedural car instead.
