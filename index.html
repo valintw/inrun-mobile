@@ -246,6 +246,10 @@ const THEMES = [
     grass:['#101024','#0d0d1e'], rumble:['#3df2ff','#ff3d9a'], road:['#26263c','#232338'], lane:'#3df2ff', sun:'moon', clouds:false, stars:true },
 ];
 const N_STAGES = THEMES.length;
+const ALPINE = 2;                       // stage index of the Alpine Pass
+const SNOW_Y = 175 * SEG_LEN;           // altitude above which the alpine stage is snow-covered
+const SNOW_RGB = [[236, 241, 247], [224, 231, 240]];
+let snowAmt = 0;                        // 0..1, eases in/out as you cross the snow line
 THEMES.forEach(t => {
   t.fogRGB = hexRGB(t.fog);
   t.grassRGB = t.grass.map(hexRGB); t.rumbleRGB = t.rumble.map(hexRGB);
@@ -468,7 +472,17 @@ function drawPalm(g, w, h, trunk, leaf, r, hd) {
   g.beginPath(); g.arc(tx, ty+4, w*0.04, 0, Math.PI*2); g.fill();
   if (hd) for (let i = 0; i < 3; i++) { g.fillStyle = '#5a3d1a'; g.beginPath(); g.arc(tx + (i-1)*w*0.035, ty + h*0.025, w*0.025, 0, 7); g.fill(); }
 }
-function drawPine(g, w, h, col, snow, hd, r) {
+function drawBank(g, w, h, r, hd) {
+  const pts = [0, h];
+  for (let i = 0; i <= 14; i++) pts.push(i / 14 * w, h - h * (0.35 + 0.65 * Math.sin(i / 14 * Math.PI)) * (0.85 + r() * 0.15));
+  pts.push(w, h);
+  poly(g, pts, '#eaf0f7');
+  g.save(); g.globalCompositeOperation = 'source-atop';
+  const gr = g.createLinearGradient(0, 0, w * 0.3, h); gr.addColorStop(0, 'rgba(255,255,255,.6)'); gr.addColorStop(1, hd ? 'rgba(120,145,180,.45)' : 'rgba(150,170,200,.4)');
+  g.fillStyle = gr; g.fillRect(0, 0, w, h); g.restore();
+  if (hd) grain(g, w, h, 0.08, r, 0.03);
+}
+function drawPine(g, w, h, col, snow, hd, r, heavy) {
   g.fillStyle = '#5a3a1e'; g.fillRect(w*0.45, h*0.8, w*0.1, h*0.2);
   const tiers = hd ? 7 : 4;
   for (let i = 0; i < tiers; i++) {
@@ -479,11 +493,13 @@ function drawPine(g, w, h, col, snow, hd, r) {
       pts.push(w/2 + hw, yb, w/2, yt);
       poly(g, pts, shade(col, (i % 2 ? -0.05 : 0.04)));
       poly(g, [w/2, yb, w/2 + hw, yb, w/2, yt], 'rgba(0,10,0,.25)');
-      if (snow) poly(g, [w/2 - hw*0.35, yt + h*0.08, w/2 - hw*0.1, yt + h*0.065, w/2 + hw*0.3, yt + h*0.08, w/2, yt], snow);
+      if (snow && heavy) poly(g, [w/2 - hw*0.75, yb - (yb-yt)*0.2, w/2 - hw*0.3, yb - (yb-yt)*0.32, w/2 + hw*0.2, yb - (yb-yt)*0.26, w/2 + hw*0.55, yb - (yb-yt)*0.32, w/2, yt], snow);
+      else if (snow) poly(g, [w/2 - hw*0.35, yt + h*0.08, w/2 - hw*0.1, yt + h*0.065, w/2 + hw*0.3, yt + h*0.08, w/2, yt], snow);
     } else {
       poly(g, [w/2 - hw, yb, w/2 + hw, yb, w/2, yt], i % 2 ? col : shade(col, -0.15));
       poly(g, [w/2, yb, w/2 + hw, yb, w/2, yt], shade(col, -0.3));
-      if (snow) poly(g, [w/2 - hw*0.3, yt + h*0.12, w/2 + hw*0.3, yt + h*0.12, w/2, yt], snow);
+      if (snow && heavy) poly(g, [w/2 - hw*0.7, yb - (yb-yt)*0.25, w/2 + hw*0.55, yb - (yb-yt)*0.3, w/2, yt], snow);
+      else if (snow) poly(g, [w/2 - hw*0.3, yt + h*0.12, w/2 + hw*0.3, yt + h*0.12, w/2, yt], snow);
     }
   }
   if (hd) { lightOverlay(g, w, h, 0.9); grain(g, w, h, 0.18, r, 0.04); }
@@ -679,7 +695,9 @@ function buildSprites(hd) {
   const def = (img, worldW, collide, ox, shadow) => ({ img, worldW, collide, ox, shadow });
   S.palm    = [0,1,2].map(i => def(mk(200*z, 360*z, (g,w,h) => drawPalm(g, w, h, '#8b5a2b', '#2fa23f', rng(10+i), hd)), 1500, 0.22, undefined, 0.35));
   S.palmDk  = [0,1,2].map(i => def(mk(200*z, 360*z, (g,w,h) => drawPalm(g, w, h, '#1e0b26', '#2a0f36', rng(20+i), hd)), 1500, 0.22, undefined, 0.35));
-  S.pine    = [0,1].map(i => def(mk(160*z, 300*z, (g,w,h) => drawPine(g, w, h, i ? '#1f5e2e' : '#24703a', i ? '#eef6ff' : null, hd, rng(25+i))), 1300, 0.45, undefined, 0.8));
+  S.pine    = [0,1].map(i => def(mk(160*z, 300*z, (g,w,h) => drawPine(g, w, h, i ? '#1f5e2e' : '#24703a', null, hd, rng(25+i))), 1300, 0.45, undefined, 0.8));
+  S.pineSnow = [0,1].map(i => def(mk(160*z, 300*z, (g,w,h) => drawPine(g, w, h, i ? '#1d5a2c' : '#245f35', '#f2f6fb', hd, rng(35+i), true)), 1300, 0.45, undefined, 0.8));
+  S.bank    = [0,1].map(i => def(mk(200*z, 60*z, (g,w,h) => drawBank(g, w, h, rng(45+i), hd)), 1500, 0, undefined, 0));
   S.cactus  = [def(mk(120*z, 200*z, (g,w,h) => drawCactus(g, w, h, hd, rng(28))), 800, 0.45, undefined, 0.7)];
   S.rock    = [0,1].map(i => def(mk(160*z, 100*z, (g,w,h) => drawRock(g, w, h, i ? '#a85a34' : '#8c7a6b', rng(30+i), hd)), 1100, 0.8, undefined, 1));
   S.rockGr  = [def(mk(160*z, 100*z, (g,w,h) => drawRock(g, w, h, '#7d8290', rng(40), hd)), 1100, 0.8, undefined, 1)];
@@ -841,19 +859,30 @@ function buildTrack() {
     addRoad(40, 40, 40, 0, 0, s);
     while (segments.length - start < STAGE_LEN) {
       const t = R();
-      const L = [25, 40, 60][Math.floor(R()*3)];
+      const L = (s === ALPINE ? [35, 50, 70] : [25, 40, 60])[Math.floor(R()*3)];
       const dir = R() < 0.5 ? -1 : 1;
       const curve = dir * [2, 3.5, 5.5][Math.floor(R()*3)];
-      const target = [-30, -10, 0, 0, 20, 40, 60][Math.floor(R()*7)] * SEG_LEN;
-      const hill = clamp((target - lastY()) / SEG_LEN, -50, 50) * (R() < 0.4 ? 0 : 1);
+      let target, hill;
+      if (s === ALPINE) {
+        // steep foothills, a climb to the pass, a long high section above the snow line, then down again
+        const prog = (segments.length - start) / STAGE_LEN;
+        const alt = prog < 0.25 ? [0, 40, 85, 20, 100] : prog < 0.42 ? [160, 210, 250] : prog < 0.78 ? [215, 250, 285, 240, 205] : [70, 25, 0];
+        target = alt[Math.floor(R() * alt.length)] * SEG_LEN;
+        hill = clamp((target - lastY()) / SEG_LEN, -80, 80);
+      } else {
+        target = [-30, -10, 0, 0, 20, 40, 60][Math.floor(R()*7)] * SEG_LEN;
+        hill = clamp((target - lastY()) / SEG_LEN, -50, 50) * (R() < 0.4 ? 0 : 1);
+      }
       if (t < 0.18)      addRoad(L, L, L, 0, hill, s);
       else if (t < 0.7)  addRoad(L, L + Math.floor(R()*40), L, curve, hill, s);
       else if (t < 0.85) { addRoad(L, L, L, curve, hill/2, s); addRoad(L, L, L, -curve, hill/2, s); }
-      else               { addRoad(25, 25, 25, 0, hill, s); addRoad(25, 25, 25, curve*0.6, 0, s); addRoad(25, 25, 25, -curve*0.6, 0, s); }
+      else               { const q = s === ALPINE ? 40 : 25; addRoad(q, q, q, 0, hill, s); addRoad(25, 25, 25, curve*0.6, 0, s); addRoad(25, 25, 25, -curve*0.6, 0, s); }
     }
+    if (s === ALPINE) for (let i = 0; i < 3 && lastY() > 10 * SEG_LEN; i++) addRoad(40, 40, 40, 0, clamp(-lastY() / SEG_LEN, -80, 80), s);
     if (s === N_STAGES - 1) addRoad(60, 60, 60, 0, -lastY() / SEG_LEN, s);
   }
   trackLength = segments.length * SEG_LEN;
+  for (const sg of segments) sg.snow = sg.stage === ALPINE && Math.min(sg.p1.wy, sg.p2.wy) > SNOW_Y;
 
   // ---- scenery ----
   const put = (seg, k, offset, R) => seg.sprites.push({ k, i: Math.floor(R() * SPR_LO[k].length), offset });
@@ -876,8 +905,11 @@ function buildTrack() {
         if (R() < 0.03) put(seg, 'rock', side() * (1.4 + R()*3.5), R);
         if (k % 220 === 110) put(seg, 'board', side() * 1.3, R);
         break;
-      case 2: // alpine
-        if (R() < 0.22) put(seg, 'pine', side() * (1.25 + R()*3.5), R);
+      case 2: // alpine — snow-laden trees and ploughed snow banks above the snow line
+        if (seg.snow) {
+          if (R() < 0.24) put(seg, 'pineSnow', side() * (1.3 + R()*3.5), R);
+          if (k % 2 === 0) { put(seg, 'bank', -(1.17 + R()*0.05), R); put(seg, 'bank', 1.17 + R()*0.05, R); }
+        } else if (R() < 0.24) put(seg, 'pine', side() * (1.25 + R()*3.5), R);
         if (R() < 0.02) put(seg, 'rockGr', side() * (1.3 + R()*2), R);
         break;
       case 3: // sunset
@@ -1338,7 +1370,8 @@ function drawBG(ti, alpha, yshift) {
 function drawSegment(seg, p1, p2) {
   const t = THEMES[seg.theme], f = 1 - seg.fog, fg = t.fogRGB, st = seg.stripe;
   const x1 = p1.x, y1 = p1.y, w1 = p1.w, x2 = p2.x, y2 = p2.y, w2 = p2.w, hd = ERAS[era].hd;
-  ctx.fillStyle = mix(hd && st ? t.grassSoft : t.grassRGB[st], fg, f); ctx.fillRect(0, y2, W, y1 - y2);
+  const gc = seg.snow ? SNOW_RGB[hd ? 0 : st] : (hd && st ? t.grassSoft : t.grassRGB[st]);
+  ctx.fillStyle = mix(gc, fg, f); ctx.fillRect(0, y2, W, y1 - y2);
   const r1 = w1 / 7, r2 = w2 / 7;
   const rc = mix(t.rumbleRGB[st], fg, f);
   poly(ctx, [x1-w1-r1, y1, x1-w1, y1, x2-w2, y2, x2-w2-r2, y2], rc);
@@ -1428,6 +1461,8 @@ function render() {
     if (seg === playerSeg) drawPlayer(playerSeg, playerPct);
   }
 
+  // falling snow above the snow line
+  if (snowAmt > 0.01) drawSnow2D();
   // particles
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
@@ -1474,6 +1509,22 @@ function postFX(yshift) {
     vignette.addColorStop(0, 'rgba(0,0,0,0)'); vignette.addColorStop(1, 'rgba(0,0,0,.45)');
   }
   ctx.fillStyle = vignette; ctx.fillRect(0, 0, W, H);
+}
+const flakes = [];
+function drawSnow2D() {
+  const n = Math.round(140 * snowAmt);
+  while (flakes.length < 140) flakes.push({ x: Math.random(), y: Math.random(), s: 0.5 + Math.random(), d: Math.random() * 6 });
+  const sp = speed / MAX_SPEED;
+  ctx.fillStyle = '#ffffff';
+  for (let i = 0; i < n; i++) {
+    const f = flakes[i];
+    f.y += STEP * (0.12 + f.s * 0.12 + sp * 0.5 * f.s); f.d += STEP * 2;
+    f.x += STEP * (Math.sin(f.d) * 0.02 + (f.x - 0.5) * sp * 0.9 * f.s);   // streak outward with speed
+    if (f.y > 1 || f.x < 0 || f.x > 1) { f.y = Math.random() * 0.3; f.x = 0.15 + Math.random() * 0.7; }
+    const sz = Math.max(1, f.s * 2.2 * K);
+    ctx.globalAlpha = 0.85; ctx.fillRect(f.x * W, f.y * H, sz, sz);
+  }
+  ctx.globalAlpha = 1;
 }
 function drawPlayer(seg, pct) {
   const lean = input.steer < -0.3 ? -1 : input.steer > 0.3 ? 1 : 0;
@@ -1610,6 +1661,16 @@ function build3D(T, A) {
   const farGround = new T.Mesh(new T.PlaneGeometry(9000, 9000).rotateX(-Math.PI / 2), std({ color: 0x336633, roughness: 1 }));
   farGround.receiveShadow = false; scene.add(farGround);
 
+  // falling snow (shown above the snow line)
+  const snowPts = (() => {
+    const n = isTouch ? 900 : 1800, arr = new Float32Array(n * 3);
+    for (let i = 0; i < n * 3; i += 3) { arr[i] = (Math.random() - 0.5) * 60; arr[i + 1] = Math.random() * 14 - 4; arr[i + 2] = (Math.random() - 0.5) * 60; }
+    const g = new T.BufferGeometry(); g.setAttribute('position', new T.BufferAttribute(arr, 3));
+    const dot = mk(32, 32, (c, w, h) => { const gr = c.createRadialGradient(16, 16, 0, 16, 16, 16); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); c.fillStyle = gr; c.fillRect(0, 0, w, h); });
+    const m = new T.PointsMaterial({ size: 0.09, map: new T.CanvasTexture(dot), transparent: true, depthWrite: false, opacity: 0.9 });
+    const pts = new T.Points(g, m); pts.frustumCulled = false; pts.visible = false; scene.add(pts); return pts;
+  })();
+
   // ---------- road + terrain ribbons ----------
   const ROWS = D3 + B3 + 1;
   const mkRibbon = (cols) => {
@@ -1653,6 +1714,10 @@ function build3D(T, A) {
   });
   const roadGeo = mkRibbon(2), groundGeo = mkRibbon(2);
   const road = new T.Mesh(roadGeo, roadMats); road.receiveShadow = true; road.frustumCulled = false;
+  groundMats.push(std({ roughness: 0.9, map: tex(mk(256, 256, (g, w, h) => {      // index THEMES.length: snow
+    g.fillStyle = '#e6edf5'; g.fillRect(0, 0, w, h); const r2 = rng(99);
+    for (let i = 0; i < 7000; i++) { g.fillStyle = r2() < 0.5 ? 'rgba(150,170,200,.10)' : 'rgba(255,255,255,.5)'; g.fillRect(r2()*w, r2()*h, 1 + r2()*3, 1 + r2()*2); }
+  })) }));
   const ground = new T.Mesh(groundGeo, groundMats); ground.receiveShadow = true; ground.frustumCulled = false;
   scene.add(road, ground);
 
@@ -1696,9 +1761,6 @@ function build3D(T, A) {
     const g = A.mergeGeometries([ni(trunk), A.mergeGeometries(fronds.map(ni)), A.mergeGeometries(coco.map(ni))], true);
     return g;
   })();
-  const pineGeo = merge([new T.CylinderGeometry(0.18, 0.25, 2, 6).translate(0, 1, 0),
-    ...[0, 1, 2, 3].map(i => new T.ConeGeometry(2.4 - i * 0.5, 3.2 - i * 0.3, 8).translate(0, 2.6 + i * 1.8, 0))]);
-  pineGeo.clearGroups(); pineGeo.addGroup(0, Infinity, 0);
   const cactusGeo = merge([new T.CapsuleGeometry(0.3, 2.8, 4, 10).translate(0, 1.7, 0),
     new T.CapsuleGeometry(0.2, 0.9, 4, 8).translate(-0.7, 2.1, 0), new T.CapsuleGeometry(0.16, 0.6, 4, 8).rotateZ(Math.PI / 2).translate(-0.4, 1.6, 0),
     new T.CapsuleGeometry(0.2, 0.8, 4, 8).translate(0.7, 2.6, 0), new T.CapsuleGeometry(0.16, 0.6, 4, 8).rotateZ(Math.PI / 2).translate(0.4, 2.1, 0)]);
@@ -1722,7 +1784,76 @@ function build3D(T, A) {
   };
   mkIM('palm', palmGeo, [MAT.bark, MAT.frond, MAT.coco], 500, true);
   mkIM('palmDk', palmGeo, [MAT.barkDk, MAT.frondDk, MAT.barkDk], 500, true);
-  mkIM('pine', pineGeo, MAT.pine, 900, true);
+  const branchTex = (snowy) => tex(mk(256, 256, (g, w, h) => {
+    const r2 = rng(snowy ? 812 : 811), greens = ['#163a20', '#1e4a28', '#275a31', '#2f6a39', '#3b7a43'];
+    const shape = v => Math.sin(Math.min(1, v * 1.15) * Math.PI) * 0.46 + 0.04;    // foliage width along the branch
+    g.lineCap = 'round';
+    g.strokeStyle = '#4a3420'; g.lineWidth = 5; g.beginPath(); g.moveTo(w / 2, h); g.quadraticCurveTo(w / 2 + 6, h / 2, w / 2, 6); g.stroke();
+    for (let tw = 0; tw < 14; tw++) {          // side twigs
+      const v = 0.1 + tw / 14 * 0.8, y = h * (1 - v), side = tw % 2 ? 1 : -1, len = shape(v) * w * 0.95;
+      g.strokeStyle = '#4a3420'; g.lineWidth = 2; g.beginPath(); g.moveTo(w / 2, y); g.lineTo(w / 2 + side * len, y - len * 0.45); g.stroke();
+    }
+    for (let i = 0; i < 2600; i++) {            // needles
+      const v = r2(), y = h * (1 - v), half = shape(v) * w;
+      const x = w / 2 + (r2() * 2 - 1) * half, a = -Math.PI / 2 + (x < w / 2 ? -1 : 1) * (0.5 + r2() * 0.7), L = 7 + r2() * 9;
+      g.strokeStyle = greens[Math.floor(r2() * greens.length)]; g.lineWidth = 1.6 + r2();
+      g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * L, y + Math.sin(a) * L); g.stroke();
+    }
+    if (snowy) for (let i = 0; i < 150; i++) {  // snow clumps resting on the twigs
+      const v = 0.08 + r2() * 0.85, y = h * (1 - v), half = shape(v) * w * 0.85, x = w / 2 + (r2() * 2 - 1) * half;
+      g.fillStyle = r2() < 0.75 ? '#f4f8fc' : '#d6e2ee'; g.beginPath(); g.ellipse(x, y, 4 + r2() * 8, 2.5 + r2() * 4, 0, 0, Math.PI * 2); g.fill();
+    }
+  }));
+  function spruceGeo(snowy) {
+    const pos = [], nor = [], uv = [], H = 13, base = 1.6, whorls = 15, per = 7;
+    const card = (root, dir, side, len, wid) => {
+      const tip = root.clone().addScaledVector(dir, len);
+      const v = [root.clone().addScaledVector(side, -wid * 0.35), root.clone().addScaledVector(side, wid * 0.35),
+                 tip.clone().addScaledVector(side, wid * 0.5), tip.clone().addScaledVector(side, -wid * 0.5)];
+      const uvs = [[0.15, 0], [0.85, 0], [1, 1], [0, 1]];
+      for (const k of [0, 1, 2, 0, 2, 3]) {
+        pos.push(v[k].x, v[k].y, v[k].z); uv.push(uvs[k][0], uvs[k][1]);
+        const n = new T.Vector3(v[k].x, (v[k].y - H * 0.45) * 0.35 + 1.2, v[k].z).normalize();   // soft "canopy" normals
+        nor.push(n.x, n.y, n.z);
+      }
+    };
+    for (let i = 0; i < whorls; i++) {
+      const t = i / (whorls - 1), y = base + t * (H - base - 0.6);
+      const len = 0.5 + 3.0 * Math.pow(1 - t, 1.05);
+      for (let k = 0; k < per; k++) {
+        const a = (k / per) * Math.PI * 2 + i * 0.9 + R() * 0.3, droop = 0.25 + (1 - t) * 0.35 + R() * 0.12;
+        const dir = new T.Vector3(Math.cos(a) * Math.cos(droop), -Math.sin(droop), Math.sin(a) * Math.cos(droop));
+        const root = new T.Vector3(Math.cos(a) * 0.12, y, Math.sin(a) * 0.12);
+        const side = new T.Vector3(-Math.sin(a), 0, Math.cos(a));
+        const up = new T.Vector3().crossVectors(dir, side).normalize();
+        const L = len * (0.85 + R() * 0.3), wdt = L * 0.75;
+        card(root, dir, side, L, wdt); card(root, dir, up, L * 0.95, wdt * 0.8);
+      }
+    }
+    for (let k = 0; k < 4; k++) {               // leader at the very top
+      const a = k * Math.PI / 2, side = new T.Vector3(-Math.sin(a), 0, Math.cos(a));
+      card(new T.Vector3(0, H - 1.2, 0), new T.Vector3(Math.cos(a) * 0.2, 1, Math.sin(a) * 0.2).normalize(), side, 1.4, 0.6);
+    }
+    const cards = new T.BufferGeometry();
+    cards.setAttribute('position', new T.Float32BufferAttribute(pos, 3));
+    cards.setAttribute('normal', new T.Float32BufferAttribute(nor, 3));
+    cards.setAttribute('uv', new T.Float32BufferAttribute(uv, 2));
+    const trunk = ni(new T.CylinderGeometry(0.12, 0.3, H, 7).translate(0, H / 2, 0));
+    const core = ni(new T.ConeGeometry(1.25, H - base - 1.2, 9, 1, true).translate(0, base + (H - base - 0.8) / 2 + 0.1, 0));
+    return A.mergeGeometries([trunk, core, cards], true);
+  }
+  const barkM = std({ color: 0x4a3524, roughness: 1 });
+  const needleM = std({ map: branchTex(false), alphaTest: 0.45, side: T.DoubleSide, roughness: 0.85 });
+  const needleSnowM = std({ map: branchTex(true), alphaTest: 0.45, side: T.DoubleSide, roughness: 0.8 });
+  const coreM = std({ color: 0x163a20, roughness: 1, side: T.DoubleSide });
+  const coreSnowM = std({ color: 0x24402e, roughness: 1, side: T.DoubleSide });
+  mkIM('pine', spruceGeo(false), [barkM, coreM, needleM], 900, true);
+  mkIM('pineSnow', spruceGeo(true), [barkM, coreSnowM, needleSnowM], 900, true);
+  // ploughed snow banks along the road edge
+  const bankGeo = (() => { const g = new T.IcosahedronGeometry(1, 2); const p = g.attributes.position, r2 = rng(17);
+    for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setXYZ(i, p.getX(i) * 1.6 * (0.9 + r2() * 0.2), Math.max(y, -0.2) * 0.55, p.getZ(i) * 1.15 * (0.9 + r2() * 0.2)); }
+    g.computeVertexNormals(); return g; })();
+  mkIM('bank', bankGeo, std({ color: 0xeef3f9, roughness: 0.85 }), 700, true);
   mkIM('cactus', cactusGeo, MAT.cactus, 300, true);
   mkIM('rock', rockGeo, MAT.rock, 300, true);
   mkIM('rockGr', rockGeo, MAT.rockGr, 200, true);
@@ -2116,8 +2247,9 @@ function build3D(T, A) {
     for (const g of [roadGeo, groundGeo]) {
       g.attributes.position.needsUpdate = true; g.attributes.uv.needsUpdate = true; g.computeVertexNormals();
       g.clearGroups();
-      let start = 0, th = segments[pi[0]].theme;
-      for (let r = 1; r < ROWS - 1; r++) { const t2 = segments[pi[r]].theme; if (t2 !== th) { g.addGroup(start * 6, (r - start) * 6, th); start = r; th = t2; } }
+      const key = g === groundGeo ? (sg => sg.snow ? THEMES.length : sg.theme) : (sg => sg.theme);
+      let start = 0, th = key(segments[pi[0]]);
+      for (let r = 1; r < ROWS - 1; r++) { const t2 = key(segments[pi[r]]); if (t2 !== th) { g.addGroup(start * 6, (r - start) * 6, th); start = r; th = t2; } }
       g.addGroup(start * 6, (ROWS - 1 - start) * 6, th);
     }
     // ---- camera + player ----
@@ -2173,7 +2305,26 @@ function build3D(T, A) {
     hemi.color.copy(col(lA.hemiSky, lB.hemiSky)); hemi.groundColor.copy(col(lA.hemiGnd, lB.hemiGnd)); hemi.intensity = lerp(lA.hemiI, lB.hemiI, bl);
     bloom.strength = lerp(lA.bloom, lB.bloom, bl); bloom.threshold = lerp(lA.thr, lB.thr, bl);
     R3.headlight.intensity = lB.night ? 60 * bl : 0;
-    farGround.material.color.copy(col(lA.ground, lB.ground)).multiplyScalar(0.8);
+    farGround.material.color.copy(col(lA.ground, lB.ground)).multiplyScalar(0.8).lerp(cB.set('#dfe7f0'), snowAmt);
+    // above the snow line: paler, colder air and bright bounce light off the snow
+    if (snowAmt > 0) {
+      scene.fog.color.lerp(cB.set('#dde6ef'), snowAmt * 0.7); skyMat.uniforms.bot.value.lerp(cB.set('#e4ebf3'), snowAmt * 0.7);
+      hemi.groundColor.lerp(cB.set('#dfe8f2'), snowAmt); scene.fog.far = lerp(scene.fog.far, 260, snowAmt);
+    }
+    snowPts.visible = snowAmt > 0.02;
+    if (snowPts.visible) {
+      const sp3 = snowPts.geometry.attributes.position, arr = sp3.array, fwdX = Math.sin(camH), fwdZ = -Math.cos(camH);
+      for (let i = 0; i < arr.length; i += 3) {
+        arr[i + 1] -= (1.6 + (i % 7) * 0.15) / 60; arr[i] += Math.sin(i + performance.now() * 0.001) * 0.01;
+        arr[i] -= fwdX * speed * M3 / 60; arr[i + 2] -= fwdZ * speed * M3 / 60;       // world drifts past as you drive
+        let dx = arr[i] - camera.position.x, dz = arr[i + 2] - camera.position.z;
+        if (arr[i + 1] < camera.position.y - 4 || dx * dx + dz * dz > 900) {
+          const a = Math.random() * Math.PI * 2, r = 4 + Math.random() * 26;
+          arr[i] = camera.position.x + fwdX * 12 + Math.cos(a) * r; arr[i + 2] = camera.position.z + fwdZ * 12 + Math.sin(a) * r; arr[i + 1] = camera.position.y + 2 + Math.random() * 10;
+        }
+      }
+      sp3.needsUpdate = true; snowPts.material.opacity = 0.9 * snowAmt;
+    }
     let minY = Infinity; for (let r = 0; r < ROWS; r++) if (py[r] < minY) minY = py[r];
     farGround.position.set(camera.position.x, minY - 6, camera.position.z);
     sky.position.copy(camera.position);
@@ -2395,6 +2546,8 @@ function frame(now) {
     acc += dt;
     while (acc >= STEP) { update(STEP); acc -= STEP; }
   }
+  const psnow = findSegment(position + PLAYER_Z).snow ? 1 : 0;
+  snowAmt += (psnow - snowAmt) * Math.min(1, dt * 1.2);
   render();
   quantizeFrame(); frameNo++;
   if (state !== 'title') updateHUD();
