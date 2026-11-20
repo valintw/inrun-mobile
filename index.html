@@ -697,7 +697,7 @@ function buildSprites(hd) {
   S.palmDk  = [0,1,2].map(i => def(mk(200*z, 360*z, (g,w,h) => drawPalm(g, w, h, '#1e0b26', '#2a0f36', rng(20+i), hd)), 1500, 0.22, undefined, 0.35));
   S.pine    = [0,1].map(i => def(mk(160*z, 300*z, (g,w,h) => drawPine(g, w, h, i ? '#1f5e2e' : '#24703a', null, hd, rng(25+i))), 1300, 0.45, undefined, 0.8));
   S.pineSnow = [0,1].map(i => def(mk(160*z, 300*z, (g,w,h) => drawPine(g, w, h, i ? '#1d5a2c' : '#245f35', '#f2f6fb', hd, rng(35+i), true)), 1300, 0.45, undefined, 0.8));
-  S.bank    = [0,1].map(i => def(mk(200*z, 60*z, (g,w,h) => drawBank(g, w, h, rng(45+i), hd)), 1500, 0, undefined, 0));
+  S.bank    = [0,1,2,3].map(i => def(mk(200*z, (50 + i * 8)*z, (g,w,h) => drawBank(g, w, h, rng(45+i), hd)), 1500, 0, undefined, 0));
   S.cactus  = [def(mk(120*z, 200*z, (g,w,h) => drawCactus(g, w, h, hd, rng(28))), 800, 0.45, undefined, 0.7)];
   S.rock    = [0,1].map(i => def(mk(160*z, 100*z, (g,w,h) => drawRock(g, w, h, i ? '#a85a34' : '#8c7a6b', rng(30+i), hd)), 1100, 0.8, undefined, 1));
   S.rockGr  = [def(mk(160*z, 100*z, (g,w,h) => drawRock(g, w, h, '#7d8290', rng(40), hd)), 1100, 0.8, undefined, 1)];
@@ -885,7 +885,7 @@ function buildTrack() {
   for (const sg of segments) sg.snow = sg.stage === ALPINE && Math.min(sg.p1.wy, sg.p2.wy) > SNOW_Y;
 
   // ---- scenery ----
-  const put = (seg, k, offset, R) => seg.sprites.push({ k, i: Math.floor(R() * SPR_LO[k].length), offset });
+  const put = (seg, k, offset, R, sz) => seg.sprites.push({ k, i: Math.floor(R() * SPR_LO[k].length), offset, sz });
   const R = rng(99);
   let stageStart = 0;
   for (let i = 0; i < segments.length; i++) {
@@ -908,7 +908,7 @@ function buildTrack() {
       case 2: // alpine — snow-laden trees and ploughed snow banks above the snow line
         if (seg.snow) {
           if (R() < 0.24) put(seg, 'pineSnow', side() * (1.3 + R()*3.5), R);
-          if (k % 2 === 0) { put(seg, 'bank', -(1.17 + R()*0.05), R); put(seg, 'bank', 1.17 + R()*0.05, R); }
+          for (const sd of [-1, 1]) if (R() < 0.4) put(seg, 'bank', sd * (1.16 + R() * R() * 0.7), R, 0.55 + R() * 0.95);   // irregular gaps, set-back and size
         } else if (R() < 0.24) put(seg, 'pine', side() * (1.25 + R()*3.5), R);
         if (R() < 0.02) put(seg, 'rockGr', side() * (1.3 + R()*2), R);
         break;
@@ -1456,7 +1456,7 @@ function render() {
       const sx = seg.p1.x + sc * sp.offset * ROAD_W * HX;
       const sd = SPR[sp.k][sp.i];
       const ox = sd.ox !== undefined ? sd.ox : (sp.offset < 0 ? -1 : 0);
-      drawSprite(sd.img, sd.worldW, sc, sx, seg.p1.y, ox, seg.clip, a, sd.shadow);
+      drawSprite(sd.img, sd.worldW * (sp.sz || 1), sc, sx, seg.p1.y, ox, seg.clip, a, sd.shadow);
     }
     if (seg === playerSeg) drawPlayer(playerSeg, playerPct);
   }
@@ -2206,8 +2206,10 @@ function build3D(T, A) {
     const k = clamp(Math.floor(d), 0, ROWS - 2), t = d - k;
     return { x: lerp(px[k], px[k + 1], t), y: lerp(py[k], py[k + 1], t), z: lerp(pz[k], pz[k + 1], t), h: lerp(ph[k], ph[k + 1], t), k };
   }
-  function place(im, n, x, y, z, yaw, s) {
-    q.setFromAxisAngle(Y, yaw); vPos.set(x, y, z); vScl.set(s, s, s);
+  const Xax = new T.Vector3(1, 0, 0), qP = new T.Quaternion();
+  function place(im, n, x, y, z, yaw, s, pitch) {
+    q.setFromAxisAngle(Y, yaw); if (pitch) q.multiply(qP.setFromAxisAngle(Xax, pitch));
+    vPos.set(x, y, z); vScl.set(s, s, s);
     mtx.compose(vPos, q, vScl); im.setMatrixAt(n, mtx);
   }
 
@@ -2266,8 +2268,9 @@ function build3D(T, A) {
     player.rotation.set(0, -pc.h + steerYaw, 0);
     player.rotateZ(-input.steer * 0.025 * sp);
     // pitch to the slope
-    const ahead = at(pd + 4);
-    player.rotateX(Math.atan2(ahead.y - pc.y, 4 * SEG_M));
+    const pf = at(pd + 2.2 / SEG_M), pb = at(pd - 2.2 / SEG_M);
+    player.position.y = (pf.y + pb.y) / 2 + bounce;
+    player.rotateX(Math.atan2(pf.y - pb.y, 4.4 * SEG_M));
     wheelSpin -= speed * M3 / 60 / 0.34;
     for (const w of R3.wheels) w.rotation.x = wheelSpin * (R3.wheelSign || 1);
     const braking = input.throttle < -0.1 || state === 'over';
@@ -2360,7 +2363,7 @@ function build3D(T, A) {
         if (s.k !== 'lampL' && s.k !== 'lampR') { const sw = sd.worldW / ROAD_W, ox = sd.ox !== undefined ? sd.ox : (s.offset < 0 ? -1 : 0); latU = s.offset + sw * (ox + 0.5); }
         const lm = latU * ROAD_W * M3, x = px[r] + cx * lm, z = pz[r] + sz * lm;
         const jitter = ((seg.index * 7 + s.i * 13) % 17) / 17;
-        let key = s.k, yaw = -h + (jitter - 0.5) * 0.6, sc = 0.85 + jitter * 0.35;
+        let key = s.k, yaw = -h + (jitter - 0.5) * 0.6, sc = (0.85 + jitter * 0.35) * (s.sz || 1);
         if (key === 'lampL' || key === 'lampR') {
           yaw = -h + (key === 'lampR' ? Math.PI : 0); sc = 1;
           if (counts.lamp < 300) { place(IM.lamp, counts.lamp++, x, py[r], z, yaw, 1); place(IM.lampHead, counts.lampHead++, x, py[r], z, yaw, 1); }
@@ -2376,7 +2379,9 @@ function build3D(T, A) {
         if (cm.n >= 60) continue;
         const lm = car.offset * ROAD_W * M3;
         const x = p.x + Math.cos(p.h) * lm, z = p.z + Math.sin(p.h) * lm;
-        place(cm.bodyIM, cm.n, x, p.y, z, -p.h, 1); cm.detIM.setMatrixAt(cm.n, mtx);
+        const half = (ty === 'truck' ? 3.6 : 2.3) / SEG_M;              // slope measured over the car's own length
+        const pitch = Math.atan2(at(d + half).y - at(d - half).y, 2 * half * SEG_M);
+        place(cm.bodyIM, cm.n, x, (at(d + half).y + at(d - half).y) / 2, z, -p.h, 1, pitch); cm.detIM.setMatrixAt(cm.n, mtx);
         cm.bodyIM.setColorAt(cm.n, carColor[car.ci]); cm.n++;
       }
     }
