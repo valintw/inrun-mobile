@@ -46,6 +46,8 @@ The audio hardware evolves with the graphics (all synthesised live in the browse
 Browsers only send tilt-sensor data to pages served over **HTTPS**. The easiest way is GitHub Pages
 (Settings → Pages → deploy from this branch, root folder). On iPhone you'll be asked to allow motion access when you tap START.
 
+The page includes Open Graph / Twitter card tags for link previews, pointing at `https://valintw.github.io/inrun-mobile/`. If you host it somewhere else, update the `og:url`, `og:image` and `twitter:image` URLs in `index.html` (they must be absolute).
+
 Add `?stage=2` … `?stage=5` to the URL to start on a later stage, and `?era=2` … `?era=5` to start in a later era (they can be combined, e.g. `?era=5&stage=3`).
 
 ## Credits
