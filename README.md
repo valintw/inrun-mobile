@@ -15,6 +15,17 @@ Every full lap (all five stages) moves the graphics and music forward an era:
 
 From lap 5 onward the game stays in HD. The 3D engine downloads in the background after the page loads (from jsDelivr); if WebGL isn't available the HD era falls back to the 2D renderer. The title screen cycles through all five eras.
 
+## Sound through the eras
+The audio hardware evolves with the graphics (all synthesised live in the browser):
+
+| Era | Sound |
+|---|---|
+| 1987 · EGA | **PC speaker** — one square-wave beeper: engine buzz, crash rattle and beeps, no music |
+| 1989 · Amiga | **4-channel Paula** — 3-channel tracker tune with 8-bit samples (hard-panned L/R), 1 channel for the engine; crashes steal it |
+| 1992 · VGA | **AdLib FM** — 2-operator FM bass, brass lead, pads and rhythm-mode drums; **Sound Blaster** 8-bit digitised engine and crashes |
+| 1996 · SVGA | **Gravis Ultrasound-style mod** — many 16-bit stereo channels, harmonies, echo and reverb; overlapping SFX, 5-speed engine, tyre squeal |
+| Today · HD | **Streamed MP3** from `assets/music/hd.mp3` (see `assets/music/README.md`); falls back to a fuller synthesised score if absent |
+
 ## Controls
 - **Hold the phone sideways** like a steering wheel.
 - **Tilt left / right** to steer.

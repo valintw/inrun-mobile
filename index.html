@@ -1122,89 +1122,346 @@ function readInput(dt) {
 }
 
 /* ======================================================================
-   AUDIO (WebAudio synth: engine, sfx, music)
+   AUDIO — the sound hardware evolves with the graphics:
+     1987 EGA   : PC speaker (one square-wave beeper, no music)
+     1989 Amiga : 4-channel "Paula" — 3-channel tracker music + 1 SFX channel
+     1992 VGA   : AdLib-style FM synthesis music + Sound Blaster 8-bit digital SFX
+     1996 SVGA  : Gravis-Ultrasound-style multi-channel 16-bit stereo mod, polyphonic SFX
+     Today      : streamed MP3 soundtrack (assets/music/hd.mp3) + modern layered SFX
    ====================================================================== */
-const audio = { ctx: null };
+const audio = { ctx: null, era: -1 };
+const midi = n => 440 * Math.pow(2, (n - 69) / 12);
+
+// ---- the shared composition: A minor, 138 bpm, 16th-note grid, 4-bar sections ----
+const SONG_BPM = 138, STEP_T = 60 / SONG_BPM / 4;
+const SECTIONS = {
+  A: { chords: [[45, 0], [41, 1], [48, 1], [43, 1]], kick: [0, 6, 8, 11],
+       lead: [[[0,76,3],[3,81,3],[6,84,2],[8,83,2],[10,81,2],[12,76,4]],
+              [[0,77,3],[3,81,3],[6,84,2],[8,86,2],[10,84,2],[12,81,4]],
+              [[0,79,3],[3,84,3],[6,88,2],[8,86,2],[10,84,2],[12,79,4]],
+              [[0,83,3],[3,86,3],[6,91,2],[8,89,2],[10,86,2],[12,83,2],[14,81,1],[15,79,1]]] },
+  B: { chords: [[41, 1], [43, 1], [40, 0], [45, 0]], kick: [0, 4, 8, 12],
+       lead: [[[0,81,5],[6,84,5],[12,89,2],[14,88,2]],
+              [[0,83,5],[6,86,5],[12,91,2],[14,89,2]],
+              [[0,79,5],[6,83,5],[12,88,2],[14,86,2]],
+              [[0,81,10],[12,84,2],[14,83,2]]] },
+  C: { chords: [[45, 0], [41, 1], [43, 1], [45, 0]], kick: [0, 8], lead: [[], [], [], []] },   // breakdown
+};
+const ORDER = ['A', 'A', 'B', 'B', 'A', 'C'];
+const BASS = [0, 0, 12, 0, 0, 12, 0, 12, 0, 0, 12, 0, 7, 12, 0, 12];
+const chordNotes = (root, maj) => [root, root + (maj ? 4 : 3), root + 7];
+
+// ---- sample building helpers ----
+function mkBuf(rate, secs, fn, bits, chans = 1) {
+  const a = audio.ctx, len = Math.max(1, Math.round(rate * secs)), b = a.createBuffer(chans, len, rate);
+  const q = bits ? Math.pow(2, bits - 1) : 0;
+  for (let c = 0; c < chans; c++) {
+    const d = b.getChannelData(c);
+    for (let i = 0; i < len; i++) { let v = clamp(fn(i / rate, i, c), -1, 1); if (q) v = Math.round(v * q) / q; d[i] = v; }
+  }
+  return b;
+}
+const cycleBuf = (rate, n, fn, bits) => mkBuf(rate, n / rate, (t, i) => fn(i / n), bits);   // one waveform cycle of n samples
+const rnd = () => Math.random() * 2 - 1;
+
+// a tracker channel: one sample at a time (new note cuts the old one), with its own pan
+function makeChan(dest, pan) {
+  const a = audio.ctx, g = a.createGain(), p = a.createStereoPanner ? a.createStereoPanner() : null;
+  if (p) { p.pan.value = pan; g.connect(p); p.connect(dest); } else g.connect(dest);
+  return {
+    src: null, busyUntil: 0,
+    play(buf, rate, vol, t, dur, loop) {
+      if (this.src) { try { this.src.stop(t); } catch (e) {} }
+      const s = a.createBufferSource(), e = a.createGain();
+      s.buffer = buf; s.playbackRate.value = rate; s.loop = !!loop;
+      e.gain.setValueAtTime(vol, t);
+      s.connect(e); e.connect(g); s.start(t); this.src = s; this.env = e;
+      if (dur) { e.gain.setValueAtTime(vol, t + Math.max(0.01, dur - 0.02)); e.gain.linearRampToValueAtTime(0, t + dur); s.stop(t + dur + 0.02); }
+      return s;
+    },
+    stop(t) { if (this.src) { try { this.src.stop(t); } catch (e) {} this.src = null; } }
+  };
+}
+
 function initAudio() {
   const AC = window.AudioContext || window.webkitAudioContext;
   if (!AC) return;
   if (audio.ctx) { audio.ctx.resume(); return; }
   const a = new AC(); audio.ctx = a;
-  const master = a.createGain(); master.gain.value = settings.sound ? 0.7 : 0; master.connect(a.destination); audio.master = master;
-  const o1 = a.createOscillator(), o2 = a.createOscillator(); o1.type = 'sawtooth'; o2.type = 'square';
-  const f = a.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 500; f.Q.value = 6;
-  const eg = a.createGain(); eg.gain.value = 0;
-  o1.connect(f); o2.connect(f); f.connect(eg); eg.connect(master); o1.start(); o2.start();
-  Object.assign(audio, { o1, o2, filter: f, eng: eg });
-  audio.mus = a.createGain(); audio.mus.gain.value = 0.16; audio.mus.connect(master);
+  audio.master = a.createGain(); audio.master.gain.value = settings.sound ? 0.7 : 0; audio.master.connect(a.destination);
   audio.step = 0; audio.next = a.currentTime + 0.1;
+  // reverb shared by the later eras (generated impulse response)
+  audio.reverb = a.createConvolver();
+  audio.reverb.buffer = mkBuf(a.sampleRate, 2.2, (t, i, c) => rnd() * Math.pow(1 - t / 2.2, 3.2), 0, 2);
+  audio.reverbIn = a.createGain(); audio.reverbIn.gain.value = 0; audio.reverbIn.connect(audio.reverb); audio.reverb.connect(audio.master);
+  // HD soundtrack: an MP3 in assets/music (optional — falls back to the synthesised score)
+  const el = new Audio(); el.loop = true; el.preload = 'auto'; el.crossOrigin = 'anonymous';
+  el.src = 'assets/music/hd.mp3';
+  audio.mp3 = { el, ok: false, failed: false };
+  el.addEventListener('canplaythrough', () => { audio.mp3.ok = true; }, { once: true });
+  el.addEventListener('error', () => { audio.mp3.failed = true; });
+  try { const src = a.createMediaElementSource(el), g = a.createGain(); g.gain.value = 0.55; src.connect(g); g.connect(audio.master); } catch (e) { audio.mp3.failed = true; }
   setInterval(musicTick, 25);
+  setAudioEra(era);
 }
 function setSound(on) { settings.sound = on; store('inrun_snd', on ? '1' : '0'); if (audio.master) audio.master.gain.value = on ? 0.7 : 0; }
-function tone(freq, t, dur, type, vol, dest) {
-  const a = audio.ctx, o = a.createOscillator(), g = a.createGain();
-  o.type = type; o.frequency.value = freq; g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + 0.008);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + dur); o.connect(g); g.connect(dest || audio.master); o.start(t); o.stop(t + dur + 0.02);
+
+// ---------------------------------------------------------------- per-era rigs
+function setAudioEra(e) {
+  const a = audio.ctx; if (!a) return;
+  if (audio.rig && audio.rig.teardown) audio.rig.teardown();
+  audio.era = e;
+  audio.reverbIn.gain.value = e >= 3 ? (e === 4 ? 0.35 : 0.25) : 0;
+  audio.rig = [rigSpeaker, rigAmiga, rigAdlib, rigGUS, rigHD][e]();
 }
-const midi = n => 440 * Math.pow(2, (n - 69) / 12);
-const PROG = [[45, 0], [41, 1], [48, 1], [43, 1]];          // A minor, F, C, G  (root, isMajor)
-const BASS = [0, 0, 12, 0, 0, 12, 0, 12, 0, 0, 12, 0, 7, 12, 0, 12];
-const LEAD = [0, 1, 2, 1, 3, 2, 1, 2, 0, 1, 2, 3, 2, 1, 2, -1];
+
+// 1987: PC speaker — a single square wave shared by everything. No volume control, no music.
+function rigSpeaker() {
+  const a = audio.ctx, o = a.createOscillator(), g = a.createGain();
+  o.type = 'square'; o.frequency.value = 40; g.gain.value = 0;
+  o.connect(g); g.connect(audio.master); o.start();
+  let busy = 0;
+  const beep = (seq) => { const t0 = a.currentTime; g.gain.setValueAtTime(0.09, t0);
+    seq.forEach(([f, d], i) => { const t = t0 + seq.slice(0, i).reduce((s, x) => s + x[1], 0); o.frequency.setValueAtTime(f, t); });
+    busy = t0 + seq.reduce((s, x) => s + x[1], 0); };
+  return {
+    music() {},
+    engine(p, live, thr) {
+      const t = a.currentTime; if (t < busy) return;
+      g.gain.setValueAtTime(live ? 0.06 : 0, t);
+      const gear = p < 0.5 ? 0 : 1, local = gear ? (p - 0.5) / 0.5 : p / 0.5;
+      o.frequency.setValueAtTime(28 + local * 120 + gear * 22 + (thr > 0 ? 6 : 0), t);
+    },
+    crash() { const seq = []; for (let i = 0; i < 24; i++) seq.push([80 + Math.random() * 900, 0.016]); seq.push([60, 0.08]); beep(seq); },
+    checkpoint() { beep([[880, 0.07], [1175, 0.07], [1397, 0.07], [1760, 0.16]]); },
+    beep(hi) { beep([[hi ? 1760 : 880, hi ? 0.35 : 0.12]]); },
+    teardown() { o.stop(); g.disconnect(); }
+  };
+}
+
+// 1989: Amiga Paula — 4 hard-panned 8-bit channels; 3 play the tune, 1 does engine + crashes
+function rigAmiga() {
+  const a = audio.ctx, bus = a.createBiquadFilter(); bus.type = 'lowpass'; bus.frequency.value = 6500; bus.connect(audio.master);
+  const R = 8363, base = R / 32;                                // 32-sample single-cycle waves
+  const S = {
+    bass: cycleBuf(R, 32, x => (x < 0.5 ? 2 * x : 2 * x - 2) * 0.9, 8),
+    lead: cycleBuf(R, 32, x => (x < 0.25 ? 0.8 : -0.8), 8),
+    kick: mkBuf(R, 0.22, t => Math.sin(2 * Math.PI * (50 * t + 5 * (1 - Math.exp(-t * 25)))) * Math.exp(-t * 12), 8),
+    snare: mkBuf(R, 0.2, t => (rnd() * 0.8 + Math.sin(2 * Math.PI * 190 * t) * 0.4) * Math.exp(-t * 18), 8),
+    hat: mkBuf(R, 0.05, t => rnd() * Math.exp(-t * 70) * 0.6, 8),
+    engine: mkBuf(R, 0.25, t => ((t * 64) % 1 * 2 - 1) * 0.6 + rnd() * 0.15, 8),   // 64 Hz buzz loop
+    crash: mkBuf(R, 0.7, t => rnd() * Math.exp(-t * 5), 8),
+  };
+  const ch = [makeChan(bus, -0.8), makeChan(bus, 0.8), makeChan(bus, 0.8), makeChan(bus, -0.8)];
+  let engOn = false;
+  const rate = (f) => f / base;
+  return {
+    music(ev, t) {
+      if (ev.bass) ch[0].play(S.bass, rate(midi(ev.bass)), 0.5, t, STEP_T * 0.95, true);
+      if (ev.lead) ch[1].play(S.lead, rate(midi(ev.lead.n)), 0.32, t, STEP_T * ev.lead.len * 0.95, true);
+      else if (ev.arp) ch[1].play(S.lead, rate(midi(ev.arp)), 0.22, t, STEP_T * 0.9, true);   // classic tracker arpeggio when the lead rests
+      if (ev.kick) ch[2].play(S.kick, 1, 0.8, t);
+      else if (ev.snare) ch[2].play(S.snare, 1, 0.6, t);
+      else if (ev.hat) ch[2].play(S.hat, 1, 0.35, t);
+    },
+    engine(p, live, thr) {
+      const c = ch[3], t = a.currentTime;
+      if (t < c.busyUntil) return;
+      if (!live) { if (engOn) { c.stop(t); engOn = false; } return; }
+      if (!engOn) { c.play(S.engine, 1, 0.3, t, 0, true); engOn = true; }
+      const gear = p < 0.5 ? 0 : 1, local = gear ? (p - 0.5) / 0.5 : p / 0.5;
+      c.src.playbackRate.setTargetAtTime(0.55 + local * 1.6 + gear * 0.35, t, 0.05);
+      c.env.gain.setTargetAtTime(0.22 + 0.12 * Math.max(0, thr), t, 0.05);
+    },
+    crash() { const t = a.currentTime; ch[3].play(S.crash, 1, 0.7, t, 0.7); ch[3].busyUntil = t + 0.7; engOn = false; },  // the crash steals the engine's channel
+    checkpoint() { const t = a.currentTime; [69, 73, 76, 81].forEach((n, i) => ch[3].play(S.lead, rate(midi(n + 12)), 0.35, t + i * 0.08, 0.08, true)); ch[3].busyUntil = t + 0.34; engOn = false; },
+    beep(hi) { const t = a.currentTime; ch[3].play(S.lead, rate(hi ? 1760 : 880), 0.35, t, hi ? 0.4 : 0.14, true); ch[3].busyUntil = t + 0.4; engOn = false; },
+    teardown() { ch.forEach(c => c.stop(a.currentTime)); setTimeout(() => bus.disconnect(), 300); }
+  };
+}
+
+// 1992: AdLib / OPL2 style 2-operator FM for music, Sound Blaster 8-bit digitised SFX (mono)
+function rigAdlib() {
+  const a = audio.ctx, bus = a.createGain(); bus.gain.value = 0.9; bus.connect(audio.master);
+  const fm = (t, f, dur, o) => {
+    const c = a.createOscillator(), m = a.createOscillator(), mg = a.createGain(), g = a.createGain();
+    c.frequency.value = f; m.frequency.value = f * o.ratio;
+    mg.gain.setValueAtTime(f * o.index, t); mg.gain.exponentialRampToValueAtTime(Math.max(1, f * o.index * o.idxEnd), t + Math.max(0.05, dur));
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(o.vol, t + o.att);
+    g.gain.setTargetAtTime(o.vol * o.sus, t + o.att, o.dec);
+    g.gain.setValueAtTime(o.vol * o.sus, t + dur); g.gain.linearRampToValueAtTime(0, t + dur + o.rel);
+    m.connect(mg); mg.connect(c.frequency); c.connect(g); g.connect(bus);
+    c.start(t); m.start(t); c.stop(t + dur + o.rel + 0.05); m.stop(t + dur + o.rel + 0.05);
+  };
+  const INS = {
+    bass:  { ratio: 1, index: 2.2, idxEnd: 0.35, att: 0.005, dec: 0.12, sus: 0.6, rel: 0.05, vol: 0.32 },
+    brass: { ratio: 1, index: 0.6, idxEnd: 2.6, att: 0.03, dec: 0.3, sus: 0.8, rel: 0.12, vol: 0.2 },
+    pad:   { ratio: 2, index: 0.35, idxEnd: 0.8, att: 0.25, dec: 0.8, sus: 0.7, rel: 0.4, vol: 0.06 },
+    bell:  { ratio: 3.5, index: 1.8, idxEnd: 0.1, att: 0.002, dec: 0.25, sus: 0.0, rel: 0.2, vol: 0.12 },
+  };
+  const noiseBuf = mkBuf(a.sampleRate, 0.4, () => rnd());
+  const drum = (t, type) => {   // OPL rhythm-mode style
+    if (type === 'kick') { const o = a.createOscillator(), g = a.createGain(); o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.12);
+      g.gain.setValueAtTime(0.6, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.2); o.connect(g); g.connect(bus); o.start(t); o.stop(t + 0.22); return; }
+    const s = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain(); s.buffer = noiseBuf;
+    f.type = type === 'snare' ? 'bandpass' : 'highpass'; f.frequency.value = type === 'snare' ? 1800 : 7000;
+    const d = type === 'snare' ? 0.16 : type === 'ohat' ? 0.18 : 0.04;
+    g.gain.setValueAtTime(type === 'snare' ? 0.45 : 0.16, t); g.gain.exponentialRampToValueAtTime(0.001, t + d);
+    s.connect(f); f.connect(g); g.connect(bus); s.start(t); s.stop(t + d + 0.02);
+    if (type === 'snare') fm(t, 180, 0.05, INS.bell);
+  };
+  // Sound Blaster: 8-bit mono 11 kHz samples
+  const SB = 11025, sbBus = a.createGain(); sbBus.gain.value = 1; sbBus.connect(audio.master);
+  const S = { engine: mkBuf(SB, 0.3, t => (((t * 50) % 1) * 2 - 1) * 0.5 + Math.sin(2 * Math.PI * 100 * t) * 0.25 + rnd() * 0.1, 8),
+              crash: mkBuf(SB, 0.9, t => (rnd() * 0.9 + Math.sin(2 * Math.PI * 60 * t) * 0.4) * Math.exp(-t * 4), 8) };
+  const eng = makeChan(sbBus, 0), fx = makeChan(sbBus, 0);
+  let engOn = false;
+  return {
+    music(ev, t) {
+      if (ev.bass) fm(t, midi(ev.bass), STEP_T * 0.85, INS.bass);
+      if (ev.lead) fm(t, midi(ev.lead.n), STEP_T * ev.lead.len * 0.9, INS.brass);
+      else if (ev.arp && ev.section === 'C') fm(t, midi(ev.arp + 12), STEP_T * 0.8, INS.bell);
+      if (ev.pad) ev.pad.forEach(n => fm(t, midi(n + 12), STEP_T * 15, INS.pad));
+      if (ev.kick) drum(t, 'kick'); if (ev.snare) drum(t, 'snare'); if (ev.hat) drum(t, ev.ohat ? 'ohat' : 'hat');
+    },
+    engine(p, live, thr) {
+      const t = a.currentTime;
+      if (!live) { if (engOn) { eng.stop(t); engOn = false; } return; }
+      if (!engOn) { eng.play(S.engine, 1, 0.25, t, 0, true); engOn = true; }
+      const g4 = Math.min(3, Math.floor(p * 4)), local = p * 4 - g4;
+      eng.src.playbackRate.setTargetAtTime(0.6 + local * 1.1 + g4 * 0.12, t, 0.06);
+      eng.env.gain.setTargetAtTime(0.18 + 0.12 * Math.max(0, thr), t, 0.05);
+    },
+    crash() { fx.play(S.crash, 1, 0.8, a.currentTime, 0.9); },
+    checkpoint() { const t = a.currentTime; [69, 73, 76, 81].forEach((n, i) => fm(t + i * 0.08, midi(n + 12), 0.12, INS.brass)); },
+    beep(hi) { fm(a.currentTime, hi ? 1760 : 880, hi ? 0.4 : 0.12, INS.bell); },
+    teardown() { eng.stop(a.currentTime); fx.stop(a.currentTime); setTimeout(() => { bus.disconnect(); sbBus.disconnect(); }, 1500); }
+  };
+}
+
+// 1996: Gravis Ultrasound style — many 16-bit stereo sample channels, reverb, overlapping SFX
+function rigGUS(hd) {
+  const a = audio.ctx, R = a.sampleRate, bus = a.createGain(); bus.gain.value = hd ? 0.8 : 0.75; bus.connect(audio.master);
+  const send = a.createGain(); send.gain.value = 0.5; bus.connect(send); send.connect(audio.reverbIn);
+  const N = 2048, base = R / N;
+  const additive = (harm) => cycleBuf(R, N, x => { let v = 0; for (let k = 1; k <= harm.length; k++) v += harm[k - 1] * Math.sin(2 * Math.PI * k * x); return v; });
+  const sawH = [], sqH = [];
+  for (let k = 1; k <= 40; k++) { sawH.push(0.6 / k); sqH.push(k % 2 ? 0.7 / k : 0); }
+  const S = {
+    bass: additive(sawH.map((v, k) => v * Math.exp(-k * 0.12))),
+    lead: additive(sawH.map((v, k) => v * 0.7 + (sqH[k] || 0) * 0.3)),
+    pad: additive(sawH.map((v, k) => v * Math.exp(-k * 0.25))),
+    kick: mkBuf(R, 0.35, t => Math.sin(2 * Math.PI * (48 * t + 9 * (1 - Math.exp(-t * 28)))) * Math.exp(-t * 9) + (t < 0.004 ? rnd() * 0.6 : 0)),
+    snare: mkBuf(R, 0.3, t => (rnd() * 0.7 * Math.exp(-t * 14) + Math.sin(2 * Math.PI * 185 * t) * 0.5 * Math.exp(-t * 30))),
+    hat: (() => { let prev = 0; return mkBuf(R, 0.06, t => { const v = rnd(), d = v - prev; prev = v; return d * Math.exp(-t * 60) * 0.35; }); })(),   // high-passed noise
+    ohat: mkBuf(R, 0.3, t => rnd() * Math.exp(-t * 12) * 0.35),
+    cymbal: mkBuf(R, 1.6, (t, i, c) => rnd() * Math.exp(-t * 2.4) * 0.45, 0, 2),
+    crash: mkBuf(R, 1.2, (t, i, c) => (rnd() * Math.exp(-t * 3.5) + Math.sin(2 * Math.PI * (45 + 30 * Math.exp(-t * 8)) * t) * Math.exp(-t * 6) * 0.9 + Math.sin(2 * Math.PI * 1370 * t) * Math.exp(-t * 7) * 0.25), 0, 2),
+    engLo: mkBuf(R, 0.4, t => { const f = 45; return ((t * f) % 1 * 2 - 1) * 0.35 + Math.sin(2 * Math.PI * f * 0.5 * t) * 0.35 + rnd() * 0.05; }),
+    engHi: mkBuf(R, 0.4, t => { const f = 90; return (((t * f) % 1) < 0.4 ? 0.3 : -0.3) + ((t * f * 2) % 1 * 2 - 1) * 0.15 + rnd() * 0.06; }),
+    squeal: mkBuf(R, 0.5, t => Math.sin(2 * Math.PI * (1100 + 60 * Math.sin(t * 40)) * t) * 0.3 + rnd() * 0.08),
+  };
+  const rate = f => f / base;
+  const voice = (buf, r, vol, t, dur, pan, loop, att = 0.004) => {        // free voices = overlapping sounds
+    const s = a.createBufferSource(), g = a.createGain(), p = a.createStereoPanner ? a.createStereoPanner() : null;
+    s.buffer = buf; s.playbackRate.value = r; s.loop = !!loop;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + att);
+    s.connect(g); if (p) { p.pan.value = pan; g.connect(p); p.connect(bus); } else g.connect(bus);
+    s.start(t);
+    if (dur) { g.gain.setTargetAtTime(0, t + dur, 0.05); s.stop(t + dur + 0.4); }
+    return { s, g };
+  };
+  const delay = a.createDelay(1), fb = a.createGain(), dIn = a.createGain();
+  delay.delayTime.value = STEP_T * 3; fb.gain.value = 0.32; dIn.gain.value = 0.3;
+  dIn.connect(delay); delay.connect(fb); fb.connect(delay); delay.connect(bus);
+  const lead = (n, t, dur) => {
+    const v1 = voice(S.lead, rate(midi(n)) * 1.004, 0.13, t, dur, -0.25, true), v2 = voice(S.lead, rate(midi(n)) * 0.996, 0.13, t, dur, 0.25, true);
+    v1.g.connect(dIn); if (hd) voice(S.lead, rate(midi(n - 12)), 0.06, t, dur, 0, true);
+  };
+  let eng = null, sq = null;
+  return {
+    music(ev, t) {
+      if (ev.bass) { voice(S.bass, rate(midi(ev.bass)), 0.32, t, STEP_T * 0.8, 0, true); if (hd) voice(S.bass, rate(midi(ev.bass - 12)), 0.18, t, STEP_T * 0.8, 0, true); }
+      if (ev.lead) lead(ev.lead.n, t, STEP_T * ev.lead.len * 0.92);
+      if (ev.arp) voice(S.lead, rate(midi(ev.arp + 12)), ev.lead ? 0.05 : 0.09, t, STEP_T * 0.7, (ev.step % 2 ? 0.6 : -0.6), true);
+      if (ev.counter) voice(S.pad, rate(midi(ev.counter.n)), 0.09, t, STEP_T * ev.counter.len, 0.4, true, 0.03);
+      if (ev.pad) ev.pad.forEach((n, i) => voice(S.pad, rate(midi(n + 12)), 0.05, t, STEP_T * 15.5, i - 1, true, 0.3));
+      if (ev.kick) voice(S.kick, 1, hd ? 0.95 : 0.8, t, 0, 0);
+      if (ev.snare) voice(S.snare, 1, 0.55, t, 0, 0.1);
+      if (ev.hat) voice(ev.ohat ? S.ohat : S.hat, 1, 0.3, t, 0, 0.35);
+      if (ev.cymbal) voice(S.cymbal, 1, 0.5, t, 0, -0.3);
+    },
+    engine(p, live, thr, steer) {
+      const t = a.currentTime;
+      if (!live) { if (eng) { eng.lo.g.gain.setTargetAtTime(0, t, 0.1); eng.hi.g.gain.setTargetAtTime(0, t, 0.1); } return; }
+      if (!eng) eng = { lo: voice(S.engLo, 1, 0, t, 0, 0, true), hi: voice(S.engHi, 1, 0, t, 0, 0, true) };
+      const g5 = Math.min(4, Math.floor(p * 5)), local = p * 5 - g5, rpm = 0.35 + local * 0.65 + g5 * 0.06;  // 5-speed box
+      const load = 0.6 + 0.4 * Math.max(0, thr);
+      eng.lo.s.playbackRate.setTargetAtTime(0.6 + rpm * 1.4, t, 0.05); eng.hi.s.playbackRate.setTargetAtTime(0.5 + rpm * 1.3, t, 0.05);
+      eng.lo.g.gain.setTargetAtTime(0.22 * (1 - rpm * 0.5) * load, t, 0.05); eng.hi.g.gain.setTargetAtTime(0.16 * rpm * load, t, 0.05);
+      const sk = Math.abs(steer) > 0.75 && p > 0.6 ? 0.12 * (Math.abs(steer) - 0.75) * 4 : 0;          // tyre squeal
+      if (sk && !sq) sq = voice(S.squeal, 1, 0, t, 0, 0, true);
+      if (sq) { sq.g.gain.setTargetAtTime(sk, t, 0.08); if (!sk) { const old = sq; setTimeout(() => { try { old.s.stop(); } catch (e) {} }, 400); sq = null; } }
+    },
+    crash() { const t = a.currentTime; voice(S.crash, 0.9 + Math.random() * 0.2, 0.9, t, 0, (Math.random() - 0.5) * 0.6); },
+    checkpoint() { const t = a.currentTime; [69, 73, 76, 81, 88].forEach((n, i) => lead(n + 12, t + i * 0.07, i === 4 ? 0.4 : 0.1)); voice(S.cymbal, 1, 0.4, t + 0.28, 0, 0); },
+    beep(hi) { lead(hi ? 93 : 81, a.currentTime, hi ? 0.4 : 0.12); },
+    teardown() { const t = a.currentTime; if (eng) { eng.lo.s.stop(t + 0.1); eng.hi.s.stop(t + 0.1); } if (sq) sq.s.stop(t + 0.1); setTimeout(() => bus.disconnect(), 2500); }
+  };
+}
+
+// Today: the soundtrack is a streamed MP3; SFX are the multi-voice sampled set with more reverb.
+function rigHD() {
+  const sfx = rigGUS(true), m = audio.mp3;
+  const useMp3 = () => m && m.ok && !m.failed;
+  return Object.assign({}, sfx, {
+    music(ev, t) { if (!useMp3()) sfx.music(ev, t); },             // synthesised score until an MP3 is supplied
+    stream(playing) {
+      if (!useMp3()) return;
+      if (playing && m.el.paused) m.el.play().catch(() => {});
+      if (!playing && !m.el.paused) m.el.pause();
+    },
+    teardown() { if (m && !m.el.paused) m.el.pause(); sfx.teardown(); }
+  });
+}
+
+// ---------------------------------------------------------------- sequencer
+function songEvents(stepIndex) {
+  const sIdx = Math.floor(stepIndex / 64) % ORDER.length, secName = ORDER[sIdx], sec = SECTIONS[secName];
+  const inSec = stepIndex % 64, bar = Math.floor(inSec / 16), i = inSec % 16, [root, maj] = sec.chords[bar];
+  const ch = chordNotes(root, maj), ev = { section: secName, step: i };
+  ev.bass = root + BASS[i] - 12 + (secName === 'C' && i % 4 ? 0 : 0);
+  if (secName === 'C' && i % 2) ev.bass = 0;
+  const ln = sec.lead[bar].find(n => n[0] === i);
+  if (ln) ev.lead = { n: ln[1], len: ln[2] };
+  if (secName === 'B' && ln) ev.counter = { n: ln[1] - (maj ? 4 : 3) - 12, len: ln[2] };   // harmony a third below (SVGA+)
+  ev.arp = ch[i % 3] + 12 * (1 + (Math.floor(i / 3) % 2));
+  if (i === 0) ev.pad = ch;
+  ev.kick = sec.kick.includes(i);
+  ev.snare = secName !== 'C' && (i === 4 || i === 12);
+  ev.hat = i % 2 === 0 || (secName === 'B' && i % 2 === 1 && i > 12);
+  ev.ohat = i === 14;
+  ev.cymbal = inSec === 0 && sIdx !== 0;
+  return ev;
+}
 function musicTick() {
-  if (!audio.ctx) return;
-  const a = audio.ctx, dur = 60 / 132 / 4;
+  if (!audio.ctx || !audio.rig) return;
+  const a = audio.ctx;
   const playing = (state === 'race' || state === 'countdown') && settings.sound;
+  if (audio.rig.stream) audio.rig.stream(playing && state === 'race');
   while (audio.next < a.currentTime + 0.12) {
-    if (playing) {
-      const s = audio.step % 64, bar = PROG[Math.floor(s / 16)], i = s % 16;
-      // instrumentation grows with the era: PC speaker -> 4-channel tracker -> FM card -> CD-quality synths
-      const t0 = audio.next, chord = [0, bar[1] ? 4 : 3, 7, 12];
-      const leadOn = LEAD[i] >= 0 && state === 'race';
-      if (era === 0) {
-        if (leadOn) tone(midi(bar[0] + 24 + chord[LEAD[i]]), t0, dur * 0.7, 'square', 0.18, audio.mus);
-        else if (i % 4 === 0) tone(midi(bar[0] + 12), t0, dur * 0.5, 'square', 0.15, audio.mus);
-      } else {
-        tone(midi(bar[0] + BASS[i]), t0, dur * 0.9, era >= 3 ? 'sawtooth' : 'square', era >= 3 ? 0.25 : 0.32, audio.mus);
-        if (leadOn) {
-          const lt = ['square', 'triangle', 'sawtooth', 'sawtooth', 'sawtooth'][era];
-          tone(midi(bar[0] + 24 + chord[LEAD[i]]), t0, dur * 0.8, lt, era >= 2 ? 0.16 : 0.26, audio.mus);
-          if (era >= 3) tone(midi(bar[0] + 24 + chord[LEAD[i]]) * 1.006, t0, dur * 0.8, 'sawtooth', 0.12, audio.mus);
-        }
-        if (i % 4 === 2) noise(t0, era >= 3 ? 0.08 : 0.05, era >= 3 ? 0.18 : 0.25, 8000);
-        if (era >= 2 && i % 8 === 0) kick(t0);
-        if (era >= 2 && i % 8 === 4) noise(t0, 0.12, 0.3, 2500);
-        if (era >= 3 && i === 0) chord.slice(0, 3).forEach(c => tone(midi(bar[0] + 12 + c), t0, dur * 15, 'triangle', era >= 4 ? 0.1 : 0.07, audio.mus));
-      }
-    }
-    audio.next += dur; audio.step++;
+    if (playing && state === 'race') audio.rig.music(songEvents(audio.step), audio.next);
+    audio.next += STEP_T; if (playing && state === 'race') audio.step++;
   }
 }
-function kick(t) {
-  const a = audio.ctx, o = a.createOscillator(), g = a.createGain();
-  o.type = 'sine'; o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.12);
-  g.gain.setValueAtTime(0.7, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
-  o.connect(g); g.connect(audio.mus); o.start(t); o.stop(t + 0.2);
-}
-function noise(t, dur, vol, cutoff) {
-  const a = audio.ctx; if (!a) return;
-  if (!audio.nbuf) { const b = a.createBuffer(1, a.sampleRate * 0.5, a.sampleRate), d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random()*2 - 1; audio.nbuf = b; }
-  const src = a.createBufferSource(); src.buffer = audio.nbuf;
-  const f = a.createBiquadFilter(); f.type = cutoff > 4000 ? 'highpass' : 'lowpass'; f.frequency.value = cutoff;
-  const g = a.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  src.connect(f); f.connect(g); g.connect(audio.master); src.start(t); src.stop(t + dur + 0.02);
-}
-function sfxCrash() { if (!audio.ctx) return; noise(audio.ctx.currentTime, 0.5, 0.9, 900); tone(70, audio.ctx.currentTime, 0.3, 'square', 0.4); }
-function sfxCheckpoint() { if (!audio.ctx) return; const t = audio.ctx.currentTime; [69, 73, 76, 81].forEach((n, i) => tone(midi(n), t + i*0.08, 0.25, 'square', 0.25)); }
-function sfxBeep(hi) { if (!audio.ctx) return; tone(hi ? 1320 : 660, audio.ctx.currentTime, hi ? 0.5 : 0.18, 'square', 0.25); }
+function sfxCrash() { if (audio.rig) audio.rig.crash(); }
+function sfxCheckpoint() { if (audio.rig) audio.rig.checkpoint(); }
+function sfxBeep(hi) { if (audio.rig) audio.rig.beep(hi); }
 function updateEngine() {
   if (!audio.ctx) return;
-  const t = audio.ctx.currentTime, p = speed / MAX_SPEED;
-  const gear = p < 0.5 ? 0 : 1, local = gear ? (p - 0.5) / 0.5 : p / 0.5;
-  const f = 42 + local * 105 + gear * 30;
-  audio.o1.frequency.setTargetAtTime(f, t, 0.04); audio.o2.frequency.setTargetAtTime(f * 0.501, t, 0.04);
-  audio.filter.frequency.setTargetAtTime(350 + p * 1600 + Math.max(0, input.throttle) * 500, t, 0.08);
+  if (audio.era !== era) setAudioEra(era);
   const live = state === 'race' || state === 'countdown' || (state === 'over' && speed > 0);
-  audio.eng.gain.setTargetAtTime(live ? 0.09 + 0.08 * Math.max(0, input.throttle) : 0, t, 0.1);
+  audio.rig.engine(speed / MAX_SPEED, live && settings.sound, Math.max(0, input.throttle), input.steer);
 }
 
 /* ======================================================================
@@ -1332,8 +1589,12 @@ function updateCars(dt) {
     if (seg !== old) { const i = old.cars.indexOf(car); if (i >= 0) old.cars.splice(i, 1); seg.cars.push(car); }
   }
 }
+let lastCrash = -1;
 function crash() {
-  shake = 0.35; sfxCrash();
+  shake = 0.35;
+  const now = performance.now();
+  if (now - lastCrash < 600) return;          // one bang per impact, not one per frame while pinned against something
+  lastCrash = now; sfxCrash();
   try { navigator.vibrate && navigator.vibrate(90); } catch (e) {}
 }
 function dust(side) {
