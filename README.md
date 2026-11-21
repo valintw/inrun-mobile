@@ -24,7 +24,7 @@ The audio hardware evolves with the graphics (all synthesised live in the browse
 | 1989 · Amiga | **4-channel Paula** — 3-channel tracker tune with 8-bit samples incl. recorded drums (hard-panned L/R), 1 channel for the sampled engine; crashes steal it |
 | 1992 · VGA | **AdLib FM** — 2-operator FM bass, brass lead, pads and rhythm-mode drums; **Sound Blaster** 8-bit digitised engine and crashes |
 | 1996 · SVGA | **Gravis Ultrasound-style mod** — many 16-bit stereo channels with recorded drums, harmonies, echo and reverb; overlapping sampled SFX, 5-speed engine crossfading two samples, tyre squeal |
-| Today · HD | **Streamed MP3 playlist**, shuffled — "Loading Bar Blues", "Chip on Your Shoulder", "Custom Chip Blues" (`assets/music/playlist.json`, see `assets/music/README.md`); the next track is loaded when the current one is half played; falls back to a fuller synthesised score |
+| Today · HD | **Streamed MP3 playlist**, shuffled — "Loading Bar Blues", "Chip on Your Shoulder", "Custom Chip Blues", "Rendered Obsolete" (`assets/music/playlist.json`, see `assets/music/README.md`); the next track is loaded when the current one is half played; falls back to a fuller synthesised score |
 
 ### Adaptive music (iMUSE-style)
 In the tracker/synth eras the score reacts to the game, in the spirit of LucasArts' iMUSE:
@@ -34,6 +34,13 @@ In the tracker/synth eras the score reacts to the game, in the spirit of LucasAr
   western with twang guitar and whistle (Desert Run), oom-pah polka with accordion, flugelhorn and tuba (Alpine Pass),
   synthwave (Sunset Blvd) and techno with acid bass (Neon City). Crossing a checkpoint plays a one-bar fill, then the
   new arrangement enters at the top of a phrase. Game over ends on a final chord.
+
+## Time bonus & traffic
+- When the clock drops below 10 seconds, a glowing **+20 s stopwatch** drops onto the road ahead at a random moment
+  between 8 and 3 seconds left. Drive through it to collect; miss it and it's gone.
+- Collisions use each vehicle's length (real 3D lengths in the HD era). Vehicles that collide bounce apart; rear-ending
+  a car shunts it forward, and a faster car hitting you shoves you on. Traffic overtakes slower vehicles (and you)
+  when a lane is free, and follows when it isn't.
 
 ## Controls
 - **Hold the phone sideways** like a steering wheel.

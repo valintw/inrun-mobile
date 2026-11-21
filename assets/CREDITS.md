@@ -32,3 +32,4 @@ Supplied by the project owner for InRun's final ("Today") era:
 - **"Loading Bar Blues"** (`loading-bar-blues.mp3`)
 - **"Chip on Your Shoulder"** (`chip-on-your-shoulder.mp3`)
 - **"Custom Chip Blues"** (`custom-chip-blues.mp3`)
+- **"Rendered Obsolete"** (`rendered-obsolete.mp3`)
