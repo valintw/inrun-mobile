@@ -24,10 +24,7 @@ No endorsement by the Khronos Group or Darmstadt Graphics Group is implied.
   **Versilian Community Sample Library (VCSL)** by Versilian Studios LLC — <https://github.com/sgossner/VCSL> —
   released under **CC0 1.0** (public domain). The kick is a shortened orchestral bass-drum hit.
 - `crash.wav`: a mix of three VCSL (CC0) recordings — a hammer-struck brake drum, clash cymbals and a bass drum.
-- `engine_lo.wav`, `engine_hi.wav`: seamless loops sliced from a car-engine recording supplied by the project owner
-  (file `dragon-studio-car-engine-372477`, i.e. "Car Engine" by Dragon Studio on Pixabay, used under the
-  [Pixabay Content License](https://pixabay.com/service/license-summary/)). The idle slice (0.8–1.7 s) and the high-rev
-  slice (~0.47 s, 26 cycles at 149 Hz) were level-flattened and crossfaded into loops.
+- `engine_lo.wav`, `engine_hi.wav`: original physically-modelled 4-cylinder engine loops made for InRun (no third-party audio).
 
 ## assets/music/ — HD-era soundtrack
 

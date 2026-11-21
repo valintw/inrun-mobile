@@ -1413,9 +1413,9 @@ function crunch(buf, rate, maxSecs) {
   return b;
 }
 // shared engine model: rpm through the gearbox -> firing frequency of a 4-cylinder four-stroke
-// the recorded engine loops: natural firing rates of the idle and high-rev slices (see assets/CREDITS.md)
-const ENG_LO_HZ = 62, ENG_HI_HZ = 149;
-const engRate = (fire, base, lo = 0.55, hi = 2.6) => clamp(fire / base, lo, hi);   // keep a real recording out of chipmunk territory
+// the modelled engine loops' natural firing rates (assets/sfx/engine_lo.wav / engine_hi.wav)
+const ENG_LO_HZ = 45, ENG_HI_HZ = 126;
+const engRate = (fire, base, lo = 0.4, hi = 6) => clamp(fire / base, lo, hi);
 function engineFire(p, gears, thr) {
   const g = Math.min(gears - 1, Math.floor(p * gears)), local = p * gears - g;
   const rpm = 900 + local * (gears > 2 ? 4800 : 5200) + g * 350 + (thr > 0 ? 120 : 0);
