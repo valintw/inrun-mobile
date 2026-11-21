@@ -490,6 +490,18 @@ function drawPalm(g, w, h, trunk, leaf, r, hd) {
   g.beginPath(); g.arc(tx, ty+4, w*0.04, 0, Math.PI*2); g.fill();
   if (hd) for (let i = 0; i < 3; i++) { g.fillStyle = '#5a3d1a'; g.beginPath(); g.arc(tx + (i-1)*w*0.035, ty + h*0.025, w*0.025, 0, 7); g.fill(); }
 }
+function drawBonusIcon(g, w, h, hd) {          // glowing stopwatch with "+20"
+  const cx = w / 2, cy = h * 0.56, r = w * 0.3;
+  const glow = g.createRadialGradient(cx, cy, r * 0.5, cx, cy, w * 0.5);
+  glow.addColorStop(0, 'rgba(255,240,120,.9)'); glow.addColorStop(1, 'rgba(255,200,40,0)');
+  g.fillStyle = glow; g.fillRect(0, 0, w, h);
+  g.fillStyle = '#ffd23d'; g.fillRect(cx - w * 0.05, cy - r - w * 0.13, w * 0.1, w * 0.1);
+  g.fillStyle = '#2a2a2a'; g.beginPath(); g.arc(cx, cy, r + w * 0.035, 0, Math.PI * 2); g.fill();
+  if (hd) { const f = g.createRadialGradient(cx - r * 0.3, cy - r * 0.3, 2, cx, cy, r); f.addColorStop(0, '#ffffff'); f.addColorStop(1, '#d8dde6'); g.fillStyle = f; } else g.fillStyle = '#ffffff';
+  g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#e0242a'; g.font = `bold ${Math.round(w * 0.24)}px Impact, 'Arial Black', sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText('+' + 20, cx, cy + w * 0.01);
+}
 function drawBank(g, w, h, r, hd) {
   const pts = [0, h];
   for (let i = 0; i <= 14; i++) pts.push(i / 14 * w, h - h * (0.35 + 0.65 * Math.sin(i / 14 * Math.PI)) * (0.85 + r() * 0.15));
@@ -727,6 +739,7 @@ function buildSprites(hd) {
   S.lampL   = [def(mk(200*z, 320*z, (g,w,h) => drawLamp(g, w, h, true, hd)), 1100, 0.1, -0.15)];
   S.lampR   = [def(mk(200*z, 320*z, (g,w,h) => drawLamp(g, w, h, false, hd)), 1100, 0.1, -0.85)];
   S.bldg    = [0,1,2,3].map(i => def(mk(220*z, 420*z, (g,w,h) => drawBuilding(g, w, h, ['#1d1b3a','#241a33','#16223a','#2a1f45'][i], rng(60+i), hd)), 3200, 1));
+  S.bonus   = [def(mk(160*z, 160*z, (g,w,h) => drawBonusIcon(g, w, h, hd)), 1300, 0, -0.5)];
   S.cp      = [def(mk(640*z, 260*z, (g,w,h) => drawBanner(g, w, h, 'CHECKPOINT', false, hd)), ROAD_W*2.5, 0, -0.5)];
   S.start   = [def(mk(640*z, 260*z, (g,w,h) => drawBanner(g, w, h, 'START', true, hd)), ROAD_W*2.5, 0, -0.5)];
 
@@ -953,8 +966,8 @@ function resetCars() {
     const z = Math.floor((0.04 + R() * 0.95) * segments.length) * SEG_LEN;
     const ci = Math.floor(R() * SPR_LO.cars.length), spr = SPR_LO.cars[ci];
     const sp = (spr.type === 'truck' ? 0.22 : 0.28) * MAX_SPEED + R() * MAX_SPEED * (spr.type === 'truck' ? 0.15 : 0.3);
-    const car = { offset, target: offset, z, ci, speed: sp, percent: 0, w: spr.worldW / ROAD_W, timer: 2 + R()*6 };
-    findSegment(z).cars.push(car);
+    const car = { offset, target: offset, z, ci, speed: sp, speed0: sp, vx: 0, percent: 0, w: spr.worldW / ROAD_W, timer: 2 + R()*6, type: spr.type };
+    car.seg = findSegment(z); car.seg.cars.push(car);
     cars.push(car);
   }
 }
@@ -964,7 +977,7 @@ function findSegment(z) { return segments[Math.floor(z / SEG_LEN) % segments.len
    GAME STATE
    ====================================================================== */
 let state = 'title';
-let position = 0, speed = 0, playerX = 0, playerY = 0;
+let position = 0, speed = 0, playerX = 0, playerY = 0, playerVX = 0;
 let lap = 0, timeLeft = START_TIME, score = 0, stagesCleared = 0, curStage = 0, topSpeed = 0;
 let bgOffset = 0, shake = 0, countdown = 0, msgTimer = 0;
 let themeFrom = 0, themeTo = 0, themeBlend = 1;
@@ -1672,6 +1685,7 @@ function musicTick() {
 }
 function sfxCrash() { if (audio.rig) audio.rig.crash(); }
 function sfxCheckpoint() { if (audio.rig) audio.rig.checkpoint(); }
+function sfxBonus() { if (audio.rig) { audio.rig.checkpoint(); setTimeout(() => audio.rig && audio.rig.beep(true), 260); } }
 function sfxBeep(hi) { if (audio.rig) audio.rig.beep(hi); }
 function updateEngine() {
   if (!audio.ctx) return;
@@ -1717,7 +1731,8 @@ function update(dt) {
 
   const over = state === 'over';
   const thr = over ? -0.4 : input.throttle;
-  playerX += dx * input.steer * (over ? 0 : 1.15);
+  playerX += dx * input.steer * (over ? 0 : 1.15) + playerVX * dt;     // steering + any knock from a collision
+  playerVX *= Math.exp(-dt * 5);
   playerX -= dx * pct * playerSeg.curve * CENTRIFUGAL;
 
   if (thr > 0) speed += ACCEL * thr * (1 - 0.45 * pct) * dt;
@@ -1741,12 +1756,29 @@ function update(dt) {
       }
     }
   }
-  for (const car of playerSeg.cars) {
-    if (speed > car.speed && overlap(playerX, pw, car.offset, car.w, 0.8)) {
-      speed = car.speed * (car.speed / speed);
-      position = wrap(car.z - PLAYER_Z, trackLength);
-      playerX += (playerX > car.offset ? 1 : -1) * 0.15;
-      crash(); break;
+  {
+    const pz = position + PLAYER_Z, Lp = lenOf('player');
+    for (const car of cars) {
+      const dz = zDelta(car.z - pz), half = (Lp + lenOf(car.type)) / 2;
+      if (Math.abs(dz) >= half || !overlap(playerX, pw, car.offset, car.w, 0.9)) continue;
+      const side = playerX >= car.offset ? 1 : -1, depth = half - Math.abs(dz);
+      let rel = Math.abs(speed - car.speed) / MAX_SPEED;
+      if (dz > 0 && speed > car.speed && depth < half * 0.7) {          // we rear-ended it: it gets shunted, we lose speed
+        car.speed = Math.min(car.speed0 * 1.4, car.speed + (speed - car.speed) * 0.4);
+        speed = car.speed * 0.8;
+        position = wrap(car.z - half - PLAYER_Z - 1, trackLength);
+      } else if (dz < 0 && car.speed > speed && depth < half * 0.7) {   // it rear-ended us: we get shoved forward
+        speed = speed + (car.speed - speed) * 0.5;
+        car.speed = speed * 0.85;
+        car.z = wrap(pz - half - 1, trackLength);
+      } else {                                                          // side-swipe
+        speed *= 0.9; rel = Math.max(rel, 0.15);
+      }
+      playerVX += side * (0.7 + rel * 1.6);
+      car.vx -= side * (0.7 + rel * 1.6);
+      car.target = LANES3.reduce((m, l) => Math.abs(l - (car.offset - side * 0.25)) < Math.abs(m - (car.offset - side * 0.25)) ? l : m, car.target);
+      syncCarSeg(car);
+      crash();
     }
   }
 
@@ -1762,6 +1794,8 @@ function update(dt) {
     timeLeft -= dt;
     if (timeLeft <= 0) { timeLeft = 0; state = 'over'; setMsg('TIME UP', ''); msgTimer = 99; }
   } else if (speed <= 0) { endGame(); }
+
+  updateBonus(dt, playerSeg, pw, over);
 
   // checkpoints / stage changes
   if (playerSeg.stage !== curStage) {
@@ -1785,6 +1819,27 @@ function update(dt) {
   if (shake > 0) shake -= dt;
 }
 const showCountdown = { last: -1 };
+// ---- time bonus: below 10 s, a +20 s pickup drops onto the road ahead at a random moment between 8 and 3 s left ----
+const BONUS_SECS = 20;
+const bonus = { active: false, armed: false, done: false, seg: -1, offset: 0, spawnAt: 0 };
+function updateBonus(dt, playerSeg, pw, over) {
+  if (over) { bonus.active = bonus.armed = false; return; }
+  if (timeLeft > 10.5) bonus.done = false;                              // re-arm once the clock has been topped up
+  if (timeLeft < 10 && !bonus.armed && !bonus.active && !bonus.done) { bonus.armed = true; bonus.spawnAt = 3 + Math.random() * 5; }
+  if (bonus.armed && timeLeft <= bonus.spawnAt) {
+    bonus.armed = false; bonus.active = true; bonus.done = true;
+    const ahead = clamp(Math.round(Math.max(speed, MAX_SPEED * 0.35) * 1.4 / SEG_LEN), 45, 150);   // reachable in ~1.5 s at your speed
+    bonus.seg = (playerSeg.index + ahead) % segments.length;
+    bonus.offset = LANES3[Math.floor(Math.random() * 3)];
+    toast('\u23F1 TIME BONUS AHEAD — DRIVE THROUGH IT!');
+  }
+  if (!bonus.active) return;
+  const dz = zDelta(bonus.seg * SEG_LEN + SEG_LEN / 2 - (position + PLAYER_Z));
+  if (Math.abs(dz) < lenOf('player') / 2 + SEG_LEN && overlap(playerX, pw, bonus.offset, 0.32, 1)) {
+    bonus.active = false; timeLeft += BONUS_SECS; score += 1000;
+    setMsg('+' + BONUS_SECS + ' SEC', 'TIME BONUS!'); msgTimer = 2; sfxBonus();
+  } else if (dz < -lenOf('player')) { bonus.active = false; toast('TIME BONUS MISSED'); }
+}
 let eraTagT = 0;
 function announceEra() {
   const E = ERAS[era], f = $('flash');
@@ -1793,17 +1848,61 @@ function announceEra() {
   eraTagT = 3.5;
 }
 
+// ---- vehicle lengths (world units): real lengths in the 3D era, sprite-ish depth in the 2D eras ----
+const LANES3 = [-2/3, 0, 2/3];
+const lenOf = (type) => R3.active ? ({ truck: 7.2, van: 4.95, sedan: 4.75, sport: 4.45, player: 4.45 }[type] || 4.5) / M3 : (type === 'truck' ? 520 : 400);
+const zDelta = (dz) => { dz = wrap(dz + trackLength / 2, trackLength); return dz - trackLength / 2; };   // shortest signed distance along the loop
+function syncCarSeg(car) {
+  const seg = findSegment(car.z); car.percent = (car.z % SEG_LEN) / SEG_LEN;
+  if (seg !== car.seg) { const i = car.seg.cars.indexOf(car); if (i >= 0) car.seg.cars.splice(i, 1); seg.cars.push(car); car.seg = seg; }
+}
+function laneFree(car, lane) {
+  const L = lenOf(car.type);
+  for (const o of cars) { if (o === car || Math.abs(o.offset - lane) > 0.38) continue; const dz = zDelta(o.z - car.z); if (dz > -L * 1.6 && dz < L + 26 * SEG_LEN) return false; }
+  const pdz = zDelta(position + PLAYER_Z - car.z);
+  return !(Math.abs(playerX - lane) < 0.45 && pdz > -L * 1.6 && pdz < L + 20 * SEG_LEN);
+}
 function updateCars(dt) {
+  const LOOK = 30 * SEG_LEN, pz = position + PLAYER_Z, Lp = lenOf('player');
   for (const car of cars) {
-    const old = findSegment(car.z);
+    const L = lenOf(car.type);
+    // who is in front of me in my lane (traffic, or the player)?
+    let gap = Infinity, ahead = null;
+    for (const o of cars) {
+      if (o === car) continue;
+      const dz = zDelta(o.z - car.z);
+      if (dz <= 0 || dz > LOOK || (Math.abs(o.offset - car.offset) > 0.4 && Math.abs(o.offset - car.target) > 0.4)) continue;
+      const g = dz - (L + lenOf(o.type)) / 2; if (g < gap) { gap = g; ahead = o; }
+    }
+    const pdz = zDelta(pz - car.z);
+    if (pdz > 0 && pdz < LOOK && Math.abs(playerX - car.offset) < 0.45) { const g = pdz - (L + Lp) / 2; if (g < gap) { gap = g; ahead = { speed, player: true }; } }
+    let want = car.speed0;
+    if (ahead && ahead.speed < car.speed0 && gap < 22 * SEG_LEN) {
+      // overtake into a free lane if there is one, otherwise follow
+      const free = LANES3.filter(l => Math.abs(l - car.target) > 0.3 && laneFree(car, l));
+      if (free.length && Math.abs(car.target - car.offset) < 0.05) car.target = free[Math.floor(Math.random() * free.length)];
+      else if (gap < 8 * SEG_LEN) want = Math.min(want, ahead.speed * (gap < 2 * SEG_LEN ? 0.9 : 1));
+    }
+    car.speed += clamp(want - car.speed, -MAX_SPEED * 0.7 * dt, MAX_SPEED * 0.12 * dt);
     car.timer -= dt;
-    if (car.timer <= 0) { car.timer = 3 + Math.random() * 6; car.target = [-2/3, 0, 2/3][Math.floor(Math.random()*3)]; }
-    car.offset += clamp(car.target - car.offset, -0.25*dt, 0.25*dt);
+    if (car.timer <= 0) { car.timer = 3 + Math.random() * 6; const l = LANES3[Math.floor(Math.random() * 3)]; if (laneFree(car, l)) car.target = l; }
+    car.offset += clamp(car.target - car.offset, -0.5 * dt, 0.5 * dt) + car.vx * dt;   // steering + any knock from a collision
+    car.vx *= Math.exp(-dt * 4);
+    if (Math.abs(car.offset) > 0.95) { car.offset = Math.sign(car.offset) * 0.95; car.vx *= -0.3; }
     car.z = wrap(car.z + dt * car.speed, trackLength);
-    car.percent = (car.z % SEG_LEN) / SEG_LEN;
-    const seg = findSegment(car.z);
-    if (seg !== old) { const i = old.cars.indexOf(car); if (i >= 0) old.cars.splice(i, 1); seg.cars.push(car); }
   }
+  // traffic-on-traffic: if two vehicles still overlap, bounce them apart
+  for (let i = 0; i < cars.length; i++) for (let j = i + 1; j < cars.length; j++) {
+    const a = cars[i], b = cars[j], dz = zDelta(b.z - a.z), half = (lenOf(a.type) + lenOf(b.type)) / 2;
+    if (Math.abs(dz) >= half || Math.abs(a.offset - b.offset) >= (a.w + b.w) / 2 * 0.9) continue;
+    const back = dz > 0 ? a : b, front = dz > 0 ? b : a, side = a.offset >= b.offset ? 1 : -1;
+    back.z = wrap(front.z - half - 1, trackLength);
+    const v = (back.speed + front.speed) / 2; front.speed = Math.max(front.speed, v * 1.05); back.speed = v * 0.85;
+    a.vx += side * 0.6; b.vx -= side * 0.6;
+    a.target = LANES3.reduce((m, l) => Math.abs(l - a.offset - side * 0.2) < Math.abs(m - a.offset - side * 0.2) ? l : m, a.target);
+    b.target = LANES3.reduce((m, l) => Math.abs(l - b.offset + side * 0.2) < Math.abs(m - b.offset + side * 0.2) ? l : m, b.target);
+  }
+  for (const car of cars) syncCarSeg(car);
 }
 let lastCrash = -1;
 function crash() {
@@ -1934,6 +2033,11 @@ function render() {
       const sd = SPR[sp.k][sp.i];
       const ox = sd.ox !== undefined ? sd.ox : (sp.offset < 0 ? -1 : 0);
       drawSprite(sd.img, sd.worldW * (sp.sz || 1), sc, sx, seg.p1.y, ox, seg.clip, a, sd.shadow);
+    }
+    if (bonus.active && seg.index === bonus.seg) {
+      const bd = SPR.bonus[0], sc = seg.p1.s, pulse = 1 + Math.sin(performance.now() / 120) * 0.08;
+      const sx = seg.p1.x + sc * bonus.offset * ROAD_W * HX, bob = Math.sin(performance.now() / 200) * 6 * K * sc * 900;
+      drawSprite(bd.img, bd.worldW * pulse, sc, sx, seg.p1.y - sc * 350 * VY - bob, -0.5, seg.clip, 1);
     }
     if (seg === playerSeg) drawPlayer(playerSeg, playerPct);
   }
@@ -2381,6 +2485,12 @@ function build3D(T, A) {
     grp.visible = false; scene.add(grp); return grp;
   };
   const gantries = { cp: [gantry('CHECKPOINT', false), gantry('CHECKPOINT', false)], start: [gantry('START', true)] };
+  // time-bonus pickup: glowing stopwatch inside a spinning gold ring
+  const bonusObj = new T.Group();
+  const bonusSprite = new T.Sprite(new T.SpriteMaterial({ map: tex(SPR_HI.bonus[0].img), transparent: true, depthWrite: false }));
+  bonusSprite.material.color.setScalar(1.7); bonusSprite.scale.set(2.7, 2.7, 1);
+  const bonusRing = new T.Mesh(new T.TorusGeometry(1.45, 0.09, 10, 40), std({ color: 0xffd23d, emissive: 0xffc020, emissiveIntensity: 3, metalness: 0.6, roughness: 0.3 }));
+  bonusObj.add(bonusSprite, bonusRing); bonusObj.visible = false; scene.add(bonusObj);
 
   // ---------- cars: lofted bodies (smooth cross-sections swept along the length) ----------
   MAT.chrome = std({ color: 0xe8e8e8, roughness: 0.12, metalness: 1 });
@@ -2827,8 +2937,14 @@ function build3D(T, A) {
     for (const type in carModels) carModels[type].n = 0;
     gantries.cp.forEach(g => g.visible = false); gantries.start.forEach(g => g.visible = false);
     let gUsed = 0;
+    bonusObj.visible = false;
     for (let r = 0; r < ROWS - 1; r++) {
       const seg = segments[pi[r]], h = ph[r], cx = Math.cos(h), sz = Math.sin(h);
+      if (bonus.active && pi[r] === bonus.seg) {
+        const lm = bonus.offset * ROAD_W * M3, now = performance.now();
+        bonusObj.position.set(px[r] + cx * lm, py[r] + 1.4 + Math.sin(now / 200) * 0.15, pz[r] + sz * lm);
+        bonusRing.rotation.y = now / 300; bonusObj.visible = true;
+      }
       for (const s of seg.sprites) {
         const sd = SPR_HI[s.k][s.i];
         if (s.banner) {
@@ -2955,7 +3071,7 @@ async function startGame() {
     if (!ok && isTouch) { setMode('touch'); toast('TILT PERMISSION DENIED — TOUCH CONTROLS ON'); }
   }
   try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {}
-  position = 0; speed = 0; playerX = 0; timeLeft = START_TIME; score = 0; stagesCleared = 0; curStage = 0; topSpeed = 0;
+  position = 0; speed = 0; playerX = 0; playerVX = 0; bonus.active = bonus.armed = bonus.done = false; timeLeft = START_TIME; score = 0; stagesCleared = 0; curStage = 0; topSpeed = 0;
   themeFrom = themeTo = 0; themeBlend = 1; bgOffset = 0; particles.length = 0;
   const qs = parseInt(new URLSearchParams(location.search).get('stage'), 10);
   if (qs > 1 && qs <= N_STAGES) { const i = segments.findIndex(sg => sg.stage === qs - 1); position = i * SEG_LEN; curStage = themeFrom = themeTo = stagesCleared = qs - 1; }

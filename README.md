@@ -35,6 +35,13 @@ In the tracker/synth eras the score reacts to the game, in the spirit of LucasAr
   synthwave (Sunset Blvd) and techno with acid bass (Neon City). Crossing a checkpoint plays a one-bar fill, then the
   new arrangement enters at the top of a phrase. Game over ends on a final chord.
 
+## Time bonus & traffic
+- When the clock drops below 10 seconds, a glowing **+20 s stopwatch** drops onto the road ahead at a random moment
+  between 8 and 3 seconds left. Drive through it to collect; miss it and it's gone.
+- Collisions use each vehicle's length (real 3D lengths in the HD era). Vehicles that collide bounce apart; rear-ending
+  a car shunts it forward, and a faster car hitting you shoves you on. Traffic overtakes slower vehicles (and you)
+  when a lane is free, and follows when it isn't.
+
 ## Controls
 - **Hold the phone sideways** like a steering wheel.
 - **Tilt left / right** to steer.
