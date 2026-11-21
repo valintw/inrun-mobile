@@ -25,3 +25,7 @@ No endorsement by the Khronos Group or Darmstadt Graphics Group is implied.
   released under **CC0 1.0** (public domain). The kick is a shortened orchestral bass-drum hit.
 - `crash.wav`: a mix of three VCSL (CC0) recordings — a hammer-struck brake drum, clash cymbals and a bass drum.
 - `engine_lo.wav`, `engine_hi.wav`: original physically-modelled 4-cylinder engine loops made for InRun (no third-party audio).
+
+## assets/music/hd.mp3 — HD-era soundtrack
+
+**"Loading Bar Blues"** — supplied by the project owner for InRun's final ("Today") era.
