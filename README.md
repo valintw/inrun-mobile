@@ -3,7 +3,8 @@
 An arcade sunset driving game in a single HTML file, built for phones. You steer and work the pedals by tilting the phone.
 
 ## A drive through gaming time
-Every full lap (all five stages) moves the graphics and music forward an era:
+The circuit has seven stages — Coastline, Desert Run, Alpine Pass, Downtown Rain, Beachfront, Sunset Blvd and Neon City.
+Every full lap moves the graphics and music forward an era:
 
 | Lap | Era | Look |
 |---|---|---|
@@ -24,7 +25,7 @@ The audio hardware evolves with the graphics (all synthesised live in the browse
 | 1989 · Amiga | **4-channel Paula** — 3-channel tracker tune with 8-bit samples incl. recorded drums (hard-panned L/R), 1 channel for the sampled engine; crashes steal it |
 | 1992 · VGA | **AdLib FM** — 2-operator FM bass, brass lead, pads and rhythm-mode drums; **Sound Blaster** 8-bit digitised engine and crashes |
 | 1996 · SVGA | **Gravis Ultrasound-style mod** — many 16-bit stereo channels with recorded drums, harmonies, echo and reverb; overlapping sampled SFX, 5-speed engine crossfading two samples, tyre squeal |
-| Today · HD | **Streamed MP3 playlist**, shuffled — "Loading Bar Blues", "Chip on Your Shoulder", "Custom Chip Blues", "Rendered Obsolete" (`assets/music/playlist.json`, see `assets/music/README.md`); the next track is loaded when the current one is half played; falls back to a fuller synthesised score |
+| Today · HD | **Streamed MP3 playlist**, shuffled — "Loading Bar Blues", "Chip on Your Shoulder", "Custom Chip Blues", "Rendered Obsolete", "Chip Tune Funeral" (two takes), "Rendered Obsolete (Extended)" (`assets/music/playlist.json`, see `assets/music/README.md`); the next track is loaded when the current one is half played; falls back to a fuller synthesised score |
 
 ### Adaptive music (iMUSE-style)
 In the tracker/synth eras the score reacts to the game, in the spirit of LucasArts' iMUSE:
@@ -32,7 +33,7 @@ In the tracker/synth eras the score reacts to the game, in the spirit of LucasAr
   counter-melody, 16th hi-hats), always switching on a bar line; tempo rises ~15% and hits get harder with speed.
 - **Horizontal re-sequencing by stage** — the same theme is re-orchestrated per stage: surf-pop (Coastline), spaghetti
   western with twang guitar and whistle (Desert Run), oom-pah polka with accordion, flugelhorn and tuba (Alpine Pass),
-  synthwave (Sunset Blvd) and techno with acid bass (Neon City). Crossing a checkpoint plays a one-bar fill, then the
+  industrial EBM with metallic clangs (Downtown Rain), calypso with steel pan and ukulele (Beachfront), synthwave (Sunset Blvd) and techno with acid bass (Neon City). Crossing a checkpoint plays a one-bar fill, then the
   new arrangement enters at the top of a phrase. Game over ends on a final chord.
 
 ## Time bonus & traffic
@@ -64,7 +65,7 @@ Browsers only send tilt-sensor data to pages served over **HTTPS**. The easiest 
 
 The page includes Open Graph / Twitter card tags for link previews, pointing at `https://valintw.github.io/inrun-mobile/`. If you host it somewhere else, update the `og:url`, `og:image` and `twitter:image` URLs in `index.html` (they must be absolute).
 
-Add `?stage=2` … `?stage=5` to the URL to start on a later stage, and `?era=2` … `?era=5` to start in a later era (they can be combined, e.g. `?era=5&stage=3`).
+Add `?stage=2` … `?stage=7` to the URL to start on a later stage, and `?era=2` … `?era=5` to start in a later era (they can be combined, e.g. `?era=5&stage=3`).
 
 ## Credits
 The HD-era player car is based on **"Car Concept"** © 2024 Darmstadt Graphics Group GmbH (model and textures by Eric Chadwick),
