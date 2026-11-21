@@ -252,15 +252,19 @@ const START_TIME  = 60;
 const N_CARS      = 70;
 
 const THEMES = [
-  { name:'COASTLINE',   skyTop:'#1660ff', skyBot:'#bfeaff', fog:'#bfe3f5', far:'#6f93c4', farSnow:null, near:'#3d9156',
+  { id:'coast',  name:'COASTLINE',   skyTop:'#1660ff', skyBot:'#bfeaff', fog:'#bfe3f5', far:'#6f93c4', farSnow:null, near:'#3d9156',
     grass:['#41b54c','#3aa744'], rumble:['#ffffff','#e0242a'], road:['#6e6e76','#68686f'], lane:'#ffffff', sun:'day', clouds:true },
-  { name:'DESERT RUN',  skyTop:'#ff7a2e', skyBot:'#ffe2a3', fog:'#ffd89a', far:'#c2643a', farSnow:null, near:'#df9a55', mesa:true,
+  { id:'desert', name:'DESERT RUN',  skyTop:'#ff7a2e', skyBot:'#ffe2a3', fog:'#ffd89a', far:'#c2643a', farSnow:null, near:'#df9a55', mesa:true,
     grass:['#e9bb6b','#e0ae5e'], rumble:['#ffffff','#303030'], road:['#7d6f66','#76685f'], lane:'#fff3d0', sun:'hot', clouds:false },
-  { name:'ALPINE PASS', skyTop:'#3c8fe0', skyBot:'#e8f5ff', fog:'#dcebf7', far:'#7d97ba', farSnow:'#f4f8ff', near:'#2c6a3a',
+  { id:'alpine', name:'ALPINE PASS', skyTop:'#3c8fe0', skyBot:'#e8f5ff', fog:'#dcebf7', far:'#7d97ba', farSnow:'#f4f8ff', near:'#2c6a3a',
     grass:['#2f8b3d','#2a7f37'], rumble:['#ffffff','#2255cc'], road:['#5e5f67','#595a62'], lane:'#ffffff', sun:'day', clouds:true },
-  { name:'SUNSET BLVD', skyTop:'#2a0a4e', skyBot:'#ff6a3d', fog:'#b8406b', far:'#5a1f6b', farSnow:null, near:'#2c0f3d',
+  { id:'rain',   name:'DOWNTOWN RAIN', skyTop:'#56606a', skyBot:'#9aa3ab', fog:'#8f989f', far:'#59616a', farSnow:null, near:'#454c53', industrial:true,
+    grass:['#50565c','#4a5056'], rumble:['#f2c200','#2b2b2b'], road:['#3c3f45','#393c42'], lane:'#e6e6e6', sun:'none', clouds:'storm', rain:true },
+  { id:'beach',  name:'BEACHFRONT', skyTop:'#1b8cff', skyBot:'#cdf1ff', fog:'#cfeefb', far:'#7aa8c6', farSnow:null, near:'#2a86c8', sea:true,
+    grass:['#eedca8','#e8d59e'], rumble:['#ffffff','#ff6a3d'], road:['#8c8c94','#86868e'], lane:'#ffffff', sun:'day', clouds:true, seaCol:['#1f88d2','#1b7fc6'] },
+  { id:'sunset', name:'SUNSET BLVD', skyTop:'#2a0a4e', skyBot:'#ff6a3d', fog:'#b8406b', far:'#5a1f6b', farSnow:null, near:'#2c0f3d',
     grass:['#3b1546','#341240'], rumble:['#ff3d9a','#2a0a35'], road:['#3b2f4b','#372b46'], lane:'#ffd23d', sun:'retro', clouds:false },
-  { name:'NEON CITY',   skyTop:'#02020f', skyBot:'#231a5e', fog:'#1d1650', far:'#15103a', farSnow:null, near:'#0b0a22', city:true,
+  { id:'neon',   name:'NEON CITY',   skyTop:'#02020f', skyBot:'#231a5e', fog:'#1d1650', far:'#15103a', farSnow:null, near:'#0b0a22', city:true,
     grass:['#101024','#0d0d1e'], rumble:['#3df2ff','#ff3d9a'], road:['#26263c','#232338'], lane:'#3df2ff', sun:'moon', clouds:false, stars:true },
 ];
 const N_STAGES = THEMES.length;
@@ -268,10 +272,12 @@ const ALPINE = 2;                       // stage index of the Alpine Pass
 const SNOW_Y = 175 * SEG_LEN;           // altitude above which the alpine stage is snow-covered
 const SNOW_RGB = [[236, 241, 247], [224, 231, 240]];
 let snowAmt = 0;                        // 0..1, eases in/out as you cross the snow line
+let rainAmt = 0;                        // 0..1, eases in/out on the rain stage
 THEMES.forEach(t => {
   t.fogRGB = hexRGB(t.fog);
   t.grassRGB = t.grass.map(hexRGB); t.rumbleRGB = t.rumble.map(hexRGB);
   t.roadRGB = t.road.map(hexRGB); t.laneRGB = hexRGB(t.lane);
+  if (t.seaCol) t.seaRGB = t.seaCol.map(hexRGB);
   t.grassSoft = t.grassRGB[0].map((v, i) => Math.round(v + (t.grassRGB[1][i] - v) * 0.4));
 });
 
@@ -489,6 +495,84 @@ function drawPalm(g, w, h, trunk, leaf, r, hd) {
   g.fillStyle = shade(trunk, -0.4);
   g.beginPath(); g.arc(tx, ty+4, w*0.04, 0, Math.PI*2); g.fill();
   if (hd) for (let i = 0; i < 3; i++) { g.fillStyle = '#5a3d1a'; g.beginPath(); g.arc(tx + (i-1)*w*0.035, ty + h*0.025, w*0.025, 0, 7); g.fill(); }
+}
+function drawWarehouse(g, w, h, col, r, hd) {
+  const top = h * 0.32, teeth = 4, tw = w / teeth;
+  g.fillStyle = col; g.fillRect(0, top, w, h - top);
+  for (let i = 0; i < teeth; i++) {                       // sawtooth factory roof with north-light glazing
+    poly(g, [i * tw, top, i * tw, top - h * 0.16, (i + 1) * tw, top], shade(col, -0.3));
+    poly(g, [i * tw, top - h * 0.16, i * tw + tw * 0.14, top - h * 0.13, i * tw + tw * 0.14, top, i * tw, top], hd ? '#9fb2c2' : '#8fa3b5');
+  }
+  g.fillStyle = 'rgba(0,0,0,.14)'; for (let x = 0; x < w; x += w / 40) g.fillRect(x, top, Math.max(1, w / 140), h - top);
+  g.fillStyle = '#2a3440'; for (let x = w * 0.05; x < w * 0.95; x += w * 0.09) g.fillRect(x, top + h * 0.07, w * 0.06, h * 0.07);
+  for (let d = 0; d < 2; d++) {                            // roller doors
+    const dx = w * (0.12 + d * 0.48), dw = w * 0.3;
+    g.fillStyle = '#8a9096'; g.fillRect(dx, h * 0.55, dw, h * 0.45);
+    g.fillStyle = 'rgba(0,0,0,.25)'; for (let y = h * 0.55; y < h; y += h * 0.03) g.fillRect(dx, y, dw, Math.max(1, h * 0.008));
+  }
+  g.fillStyle = '#f2c200'; g.fillRect(0, top + h * 0.17, w, h * 0.025);
+  if (hd) { lightOverlay(g, w, h, 0.7); grain(g, w, h, 0.12, r, 0.03);
+    g.fillStyle = 'rgba(20,30,40,.12)'; for (let i = 0; i < 30; i++) g.fillRect(r() * w, top, 2, (h - top) * (0.3 + r() * 0.7)); }   // rain streaks
+}
+function drawChimney(g, w, h, hd) {
+  const top = h * 0.16;
+  for (let i = 0; i < 6; i++) { g.fillStyle = `rgba(160,165,172,${0.35 - i * 0.04})`; g.beginPath(); g.arc(w * (0.5 + i * 0.08), top - i * h * 0.025, w * (0.22 + i * 0.05), 0, 7); g.fill(); }
+  poly(g, [w * 0.3, top, w * 0.7, top, w * 0.82, h, w * 0.18, h], '#8e3f2f');
+  for (let i = 0; i < 3; i++) { const y = top + h * (0.03 + i * 0.07); poly(g, [w * 0.29, y, w * 0.71, y, w * 0.72, y + h * 0.03, w * 0.28, y + h * 0.03], '#f0f0f0'); }
+  g.fillStyle = '#2a2a2a'; g.fillRect(w * 0.27, top - h * 0.01, w * 0.46, h * 0.02);
+  if (hd) { const gr = g.createLinearGradient(w * 0.2, 0, w * 0.8, 0); gr.addColorStop(0, 'rgba(255,255,255,.18)'); gr.addColorStop(1, 'rgba(0,0,0,.35)');
+    g.save(); g.globalCompositeOperation = 'source-atop'; g.fillStyle = gr; g.fillRect(0, top, w, h); g.restore(); }
+}
+function drawCrane(g, w, h, hd) {
+  const Y = '#f2c200', mx = w * 0.3, mw = w * 0.06, jy = h * 0.12, jh = h * 0.035;
+  g.strokeStyle = Y; g.lineWidth = Math.max(1, w * 0.008);
+  const lattice = (x0, y0, x1, y1, vertical) => {           // two chords and zig-zag bracing
+    g.fillStyle = Y;
+    if (vertical) { g.fillRect(x0, y0, w * 0.01, y1 - y0); g.fillRect(x1 - w * 0.01, y0, w * 0.01, y1 - y0); g.beginPath(); for (let y = y0, s = 0; y < y1; y += (x1 - x0), s ^= 1) { g.moveTo(s ? x1 : x0, y); g.lineTo(s ? x0 : x1, y + (x1 - x0)); } g.stroke(); }
+    else { g.fillRect(x0, y0, x1 - x0, h * 0.006); g.fillRect(x0, y1 - h * 0.006, x1 - x0, h * 0.006); g.beginPath(); for (let x = x0, s = 0; x < x1; x += (y1 - y0), s ^= 1) { g.moveTo(x, s ? y1 : y0); g.lineTo(x + (y1 - y0), s ? y0 : y1); } g.stroke(); }
+  };
+  lattice(mx, jy, mx + mw, h, true);
+  lattice(w * 0.05, jy - jh, w * 0.98, jy, false);
+  g.fillStyle = '#6a6f75'; g.fillRect(w * 0.04, jy - jh * 0.2, w * 0.1, jh * 1.6);   // counterweight
+  g.fillStyle = '#e8e8e8'; g.fillRect(mx - w * 0.01, jy, mw + w * 0.04, h * 0.03);     // cab
+  g.fillStyle = '#333'; g.fillRect(w * 0.78, jy, Math.max(1, w * 0.004), h * 0.38); g.fillRect(w * 0.77, jy + h * 0.38, w * 0.025, h * 0.02);
+  poly(g, [mx + mw / 2, jy - jh * 2.6, mx, jy - jh, mx + mw, jy - jh], Y);
+}
+function drawContainers(g, w, h, r, hd) {
+  const cols = ['#1f5fa8', '#c0392b', '#e67e22', '#27885a', '#8e9aa3', '#6c3483'], cw = w / 2, ch = h / 3;
+  for (let c = 0; c < 2; c++) { const levels = 1 + Math.floor(r() * 3);
+    for (let l = 0; l < levels; l++) { const x = c * cw, y = h - (l + 1) * ch, col = cols[Math.floor(r() * cols.length)];
+      g.fillStyle = col; g.fillRect(x + 1, y + 1, cw - 2, ch - 2);
+      g.fillStyle = 'rgba(0,0,0,.18)'; for (let xx = x + 4; xx < x + cw - 4; xx += cw / 14) g.fillRect(xx, y + 3, Math.max(1, cw / 60), ch - 6);
+      g.fillStyle = 'rgba(255,255,255,.25)'; g.fillRect(x + 1, y + 1, cw - 2, Math.max(1, ch * 0.05)); } }
+  if (hd) lightOverlay(g, w, h, 0.6);
+}
+function drawUmbrella(g, w, h, col, hd) {
+  g.fillStyle = '#d8d8d8'; g.fillRect(w * 0.49, h * 0.36, w * 0.02, h * 0.64);
+  const cx = w * 0.5, cy = h * 0.4, rx = w * 0.46, ry = h * 0.22, n = 8;
+  for (let i = 0; i < n; i++) { const a0 = Math.PI + i / n * Math.PI, a1 = Math.PI + (i + 1) / n * Math.PI;
+    poly(g, [cx, cy - ry, cx + Math.cos(a0) * rx, cy + Math.sin(a0) * ry * 0.1 + ry * 0.35, cx + Math.cos(a1) * rx, cy + Math.sin(a1) * ry * 0.1 + ry * 0.35], i % 2 ? '#ffffff' : col); }
+  if (hd) { g.fillStyle = 'rgba(0,0,0,.18)'; g.beginPath(); g.ellipse(cx, h * 0.97, rx * 0.8, h * 0.03, 0, 0, 7); g.fill(); g.fillStyle = col; g.fillRect(w * 0.2, h * 0.9, w * 0.25, h * 0.05); }
+}
+function drawHut(g, w, h, col, hd) {
+  g.fillStyle = col; g.fillRect(w * 0.08, h * 0.4, w * 0.84, h * 0.6);
+  g.fillStyle = 'rgba(0,0,0,.12)'; for (let x = w * 0.08; x < w * 0.92; x += w * 0.07) g.fillRect(x, h * 0.4, Math.max(1, w * 0.012), h * 0.6);
+  poly(g, [w * 0.02, h * 0.42, w * 0.5, h * 0.12, w * 0.98, h * 0.42], '#f6f6f6');
+  g.fillStyle = shade(col, -0.25); g.fillRect(w * 0.36, h * 0.56, w * 0.28, h * 0.44);
+  g.fillStyle = '#ffffff'; g.fillRect(w * 0.34, h * 0.54, w * 0.32, h * 0.025);
+  if (hd) lightOverlay(g, w, h, 0.6);
+}
+function drawLifeguard(g, w, h, hd) {
+  g.fillStyle = '#c9a26b'; for (const x of [0.22, 0.72]) g.fillRect(w * x, h * 0.5, w * 0.06, h * 0.5);
+  g.fillRect(w * 0.15, h * 0.5, w * 0.7, h * 0.04);
+  g.save(); g.translate(w * 0.5, h * 0.75); g.rotate(-0.35); g.fillRect(-w * 0.08, -h * 0.25, w * 0.04, h * 0.5); g.fillRect(w * 0.04, -h * 0.25, w * 0.04, h * 0.5);
+  for (let y = -h * 0.22; y < h * 0.25; y += h * 0.06) g.fillRect(-w * 0.08, y, w * 0.16, h * 0.012); g.restore();
+  g.fillStyle = '#d6332b'; g.fillRect(w * 0.2, h * 0.28, w * 0.6, h * 0.22);
+  g.fillStyle = '#ffffff'; g.fillRect(w * 0.2, h * 0.36, w * 0.6, h * 0.05);
+  g.fillStyle = '#f2f2f2'; g.fillRect(w * 0.14, h * 0.24, w * 0.72, h * 0.05);
+  g.fillStyle = '#666'; g.fillRect(w * 0.79, h * 0.02, w * 0.015, h * 0.24);
+  g.fillStyle = '#e0242a'; poly(g, [w * 0.805, h * 0.03, w * 0.98, h * 0.07, w * 0.805, h * 0.11], '#e0242a');
+  if (hd) lightOverlay(g, w, h, 0.5);
 }
 function drawBonusIcon(g, w, h, hd) {          // glowing stopwatch with "+20"
   const cx = w / 2, cy = h * 0.56, r = w * 0.3;
@@ -739,6 +823,13 @@ function buildSprites(hd) {
   S.lampL   = [def(mk(200*z, 320*z, (g,w,h) => drawLamp(g, w, h, true, hd)), 1100, 0.1, -0.15)];
   S.lampR   = [def(mk(200*z, 320*z, (g,w,h) => drawLamp(g, w, h, false, hd)), 1100, 0.1, -0.85)];
   S.bldg    = [0,1,2,3].map(i => def(mk(220*z, 420*z, (g,w,h) => drawBuilding(g, w, h, ['#1d1b3a','#241a33','#16223a','#2a1f45'][i], rng(60+i), hd)), 3200, 1));
+  S.warehouse = ['#9a4a3a', '#7d8a96', '#a8763e', '#5f6b5e'].map((c, i) => def(mk(320*z, 200*z, (g,w,h) => drawWarehouse(g, w, h, c, rng(70+i), hd)), 3600, 1));
+  S.chimney   = [def(mk(60*z, 420*z, (g,w,h) => drawChimney(g, w, h, hd)), 700, 0.6)];
+  S.crane     = [def(mk(300*z, 420*z, (g,w,h) => drawCrane(g, w, h, hd)), 4200, 0.12)];
+  S.containers = [0,1,2].map(i => def(mk(260*z, 170*z, (g,w,h) => drawContainers(g, w, h, rng(80+i), hd)), 2600, 0.9));
+  S.umbrella  = ['#e0242a', '#1660ff', '#ffb300'].map(c => def(mk(160*z, 160*z, (g,w,h) => drawUmbrella(g, w, h, c, hd)), 1000, 0.12, undefined, 0.6));
+  S.hut       = ['#ff9eb5', '#8fd3ff', '#a8e6a1', '#ffe28a', '#c9a7ff'].map(c => def(mk(140*z, 180*z, (g,w,h) => drawHut(g, w, h, c, hd)), 1000, 0.8, undefined, 0.8));
+  S.lifeguard = [def(mk(180*z, 260*z, (g,w,h) => drawLifeguard(g, w, h, hd)), 1400, 0.4, undefined, 0.6)];
   S.bonus   = [def(mk(160*z, 160*z, (g,w,h) => drawBonusIcon(g, w, h, hd)), 1300, 0, -0.5)];
   S.cp      = [def(mk(640*z, 260*z, (g,w,h) => drawBanner(g, w, h, 'CHECKPOINT', false, hd)), ROAD_W*2.5, 0, -0.5)];
   S.start   = [def(mk(640*z, 260*z, (g,w,h) => drawBanner(g, w, h, 'START', true, hd)), ROAD_W*2.5, 0, -0.5)];
@@ -787,7 +878,7 @@ function buildBackgrounds() {
         g.fillStyle = 'rgba(220,230,255,.12)'; g.beginPath(); g.arc(sx, h*0.3, h*0.2, 0, 7); g.fill();
         g.fillStyle = '#eef2ff'; g.beginPath(); g.arc(sx, h*0.3, h*0.1, 0, 7); g.fill();
         g.fillStyle = t.skyTop; g.beginPath(); g.arc(sx + h*0.04, h*0.28, h*0.09, 0, 7); g.fill();
-      } else {
+      } else if (t.sun !== 'none') {
         const sy = t.sun === 'hot' ? h*0.55 : h*0.25, sr = t.sun === 'hot' ? h*0.16 : h*0.09;
         const halo = g.createRadialGradient(sx, sy, sr*0.5, sx, sy, sr*(hd ? 6 : 4));
         halo.addColorStop(0, 'rgba(255,255,230,.7)'); halo.addColorStop(1, 'rgba(255,255,230,0)');
@@ -797,7 +888,13 @@ function buildBackgrounds() {
     });
     const FH = Math.ceil(VY);
     farLayers[ti] = mk(BW, FH, (g, w, h) => {
-      if (t.clouds) {
+      if (t.clouds === 'storm') {                       // low, heavy overcast
+        for (let i = 0; i < 70; i++) {
+          const cx = R() * w, cy = h * (0.05 + R() * 0.55), s = (40 + R() * 70) * k;
+          g.fillStyle = R() < 0.5 ? 'rgba(110,118,126,.55)' : 'rgba(90,97,105,.5)';
+          g.beginPath(); g.ellipse(cx, cy, s, s * 0.35, 0, 0, 7); g.fill();
+        }
+      } else if (t.clouds) {
         for (let i = 0; i < 9; i++) {
           const cx = (i / 9) * w + R()*80*k, cy = h*0.15 + R()*h*0.35, s = (20 + R()*30) * k;
           for (let j = 0; j < 6; j++) {
@@ -807,6 +904,19 @@ function buildBackgrounds() {
             g.beginPath(); g.ellipse(ex, ey, s, s*0.55, 0, 0, 7); g.fill();
           }
         }
+      }
+      if (t.industrial) {                                 // factories, gas holders and smokestacks in the drizzle
+        let x = 0;
+        while (x < w) {
+          const bw = (40 + R()*90) * k, bh = h*(0.08 + R()*0.22);
+          g.fillStyle = t.far; g.fillRect(x, h - bh, bw, bh);
+          if (R() < 0.5) for (let i = 0; i < 3; i++) poly(g, [x + i*bw/3, h - bh, x + i*bw/3, h - bh - 8*k, x + (i+1)*bw/3, h - bh], t.far);
+          if (R() < 0.35) { const cx = x + R()*bw, chh = h*(0.2 + R()*0.25); g.fillRect(cx, h - bh - chh, 5*k, chh);
+            g.fillStyle = 'rgba(140,146,152,.35)'; for (let j = 0; j < 4; j++) { g.beginPath(); g.arc(cx + j*6*k, h - bh - chh - j*5*k, (6 + j*3)*k, 0, 7); g.fill(); } }
+          if (R() < 0.12) { g.fillStyle = t.far; g.beginPath(); g.ellipse(x + bw/2, h - bh, bw*0.35, bh*0.9, 0, Math.PI, 0); g.fill(); }
+          x += bw + R()*10*k;
+        }
+        return;
       }
       if (t.city) {
         let x = 0;
@@ -844,6 +954,11 @@ function buildBackgrounds() {
     const NH = Math.ceil(VY * 0.45);
     nearLayers[ti] = mk(BW, NH, (g, w, h) => {
       const p = [R()*6.28, R()*6.28, R()*6.28];
+      if (t.sea) {                                         // flat sea to the horizon
+        g.fillStyle = t.near; g.fillRect(0, h * 0.62, w, h * 0.38);
+        g.fillStyle = 'rgba(255,255,255,.35)'; for (let i = 0; i < 60 * k; i++) g.fillRect(R() * w, h * 0.64 + R() * h * 0.34, (6 + R() * 18) * k, Math.max(1, k));
+        return;
+      }
       if (hd) { const ng = g.createLinearGradient(0, 0, 0, h); ng.addColorStop(0, shade(t.near, 0.1)); ng.addColorStop(1, mix(hexRGB(t.near), t.fogRGB, 0.4)); g.fillStyle = ng; }
       else g.fillStyle = t.near;
       g.beginPath(); g.moveTo(0, h);
@@ -901,8 +1016,10 @@ function buildTrack() {
         target = alt[Math.floor(R() * alt.length)] * SEG_LEN;
         hill = clamp((target - lastY()) / SEG_LEN, -80, 80);
       } else {
-        target = [-30, -10, 0, 0, 20, 40, 60][Math.floor(R()*7)] * SEG_LEN;
-        hill = clamp((target - lastY()) / SEG_LEN, -50, 50) * (R() < 0.4 ? 0 : 1);
+        const tid = THEMES[s].id;
+        target = (tid === 'beach' ? [0, 0, 4, 8] : tid === 'rain' ? [-10, 0, 10, 20] : [-30, -10, 0, 0, 20, 40, 60])[Math.floor(R()*(tid === 'beach' || tid === 'rain' ? 4 : 7))] * SEG_LEN;
+        const lim = tid === 'beach' ? 10 : 50;
+        hill = clamp((target - lastY()) / SEG_LEN, -lim, lim) * (R() < 0.4 ? 0 : 1);
       }
       if (t < 0.18)      addRoad(L, L, L, 0, hill, s);
       else if (t < 0.7)  addRoad(L, L + Math.floor(R()*40), L, curve, hill, s);
@@ -925,30 +1042,46 @@ function buildTrack() {
     const k = i - stageStart;
     if (k < 12) continue;
     const side = () => R() < 0.5 ? -1 : 1;
-    switch (seg.stage) {
-      case 0: // coast: rows of palms, bushes, billboards
+    switch (THEMES[seg.stage].id) {
+      case 'coast': // rows of palms, bushes, billboards
         if (k % 9 === 0) { put(seg, 'palm', -1.25 - R()*0.2, R); put(seg, 'palm', 1.25 + R()*0.2, R); }
         if (R() < 0.05) put(seg, 'bush', side() * (1.6 + R()*2.5), R);
         if (k % 170 === 85) put(seg, 'board', side() * 1.3, R);
         break;
-      case 1: // desert
+      case 'desert':
         if (R() < 0.05) put(seg, 'cactus', side() * (1.3 + R()*3), R);
         if (R() < 0.03) put(seg, 'rock', side() * (1.4 + R()*3.5), R);
         if (k % 220 === 110) put(seg, 'board', side() * 1.3, R);
         break;
-      case 2: // alpine — snow-laden trees and ploughed snow banks above the snow line
+      case 'alpine': // snow-laden trees and ploughed snow banks above the snow line
         if (seg.snow) {
           if (R() < 0.24) put(seg, 'pineSnow', side() * (1.3 + R()*3.5), R);
           for (const sd of [-1, 1]) if (R() < 0.4) put(seg, 'bank', sd * (1.16 + R() * R() * 0.7), R, 0.55 + R() * 0.95);   // irregular gaps, set-back and size
         } else if (R() < 0.24) put(seg, 'pine', side() * (1.25 + R()*3.5), R);
         if (R() < 0.02) put(seg, 'rockGr', side() * (1.3 + R()*2), R);
         break;
-      case 3: // sunset
+      case 'rain': // downtown industrial: warehouses, container stacks, chimneys, cranes, street lamps
+        if (k % 9 === 0) put(seg, 'warehouse', -(2.0 + R()*0.6), R);
+        if (k % 9 === 4) put(seg, 'warehouse', 2.0 + R()*0.6, R);
+        if (k % 7 === 2 && R() < 0.6) put(seg, 'containers', side() * (1.45 + R()*0.3), R);
+        if (k % 12 === 0) { put(seg, 'lampL', -1.12, R); put(seg, 'lampR', 1.12, R); }
+        if (k % 75 === 30) put(seg, 'chimney', side() * (3.2 + R()*1.2), R);
+        if (k % 260 === 130) put(seg, 'crane', side() * (3.6 + R()*0.8), R);
+        if (k % 190 === 95) put(seg, 'board', side() * 1.35, R);
+        break;
+      case 'beach': // huts and palms on the left; parasols, a lifeguard tower and the sea on the right
+        if (k % 10 === 0) put(seg, 'hut', -(1.4 + R()*0.25), R);
+        if (k % 9 === 3) put(seg, 'palm', -(2.3 + R()*0.6), R);
+        if (R() < 0.12) put(seg, 'umbrella', 1.35 + R()*1.2, R);
+        if (k % 160 === 80) put(seg, 'lifeguard', 1.9, R);
+        if (k % 200 === 40) put(seg, 'board', -1.3, R);
+        break;
+      case 'sunset':
         if (k % 7 === 0) { put(seg, 'palmDk', -1.25 - R()*0.3, R); put(seg, 'palmDk', 1.25 + R()*0.3, R); }
         if (R() < 0.04) put(seg, 'bushDk', side() * (1.8 + R()*2), R);
         if (k % 150 === 75) put(seg, 'board', side() * 1.35, R);
         break;
-      case 4: // neon city
+      case 'neon':
         if (k % 10 === 0) { put(seg, 'lampL', -1.12, R); put(seg, 'lampR', 1.12, R); }
         if (k % 6 === 3) { put(seg, 'bldg', -(1.8 + R()*0.8), R); put(seg, 'bldg', 1.8 + R()*0.8, R); }
         if (k % 130 === 65) put(seg, 'board', side() * 1.4, R);
@@ -1199,6 +1332,9 @@ const TIMBRES = {
   synthbass: { h: SAW.map((v, k) => v * Math.exp(-k * 0.12)), env: 'sus', fm: [1, 2.5, 0.5, 0.005, 0.15, 0.7, 0.05, 0.32] },
   acid:      { h: SAW.slice(0, 14), env: 'pluck', dec: 6, fm: [1, 4, 0.3, 0.002, 0.1, 0.4, 0.05, 0.3] },
   stab:      { h: [1, .3, .5, .1, .3, .05, .2], env: 'stacc', fm: [1, 1, 0.5, 0.002, 0.1, 0.3, 0.05, 0.12] },
+  grit:      { h: [1, .25, .45, .2, .3, .15, .22, .12, .16, .1, .12, .08], env: 'sus', vib: 0.003, fm: [1, 3, 2, 0.005, 0.2, 0.8, 0.08, 0.17] },
+  steelpan:  { h: [1, .05, .5, .02, .25, 0, .12], env: 'pluck', dec: 3.2, vib: 0.004, fm: [2.76, 1.6, 0.1, 0.002, 0.3, 0, 0.2, 0.17] },
+  uke:       { h: [1, .6, .5, .3, .22, .15, .1], env: 'pluck', dec: 9, fm: [1, 2.4, 0.2, 0.001, 0.15, 0, 0.05, 0.13] },
 };
 // One style ("cue") per stage. Same theme, different band — like Monkey Island 2's Woodtick.
 const STYLES = [
@@ -1207,6 +1343,10 @@ const STYLES = [
     lead: 'twang', counter: 'whistle', comp: 'twang', compPat: 'strum', bass: 'pickbass', bassPat: 'rootfifth', drums: 'gallop' },
   { id: 'polka',     tempo: 150, scale: 'major',    prog: { A: [[45, 1], [40, 1], [45, 1], [40, 1]], B: [[50, 1], [45, 1], [40, 1], [45, 1]], C: [[45, 1], [50, 1], [40, 1], [45, 1]] },
     lead: 'accordion', counter: 'flugel', comp: 'accordion', compPat: 'oompah', bass: 'tuba', bassPat: 'oompah', drums: 'oompah' },
+  { id: 'industrial', tempo: 128, scale: 'harmonic', prog: { A: [[45, 0], [45, 0], [41, 1], [40, 1]], B: [[41, 1], [43, 1], [40, 1], [45, 0]], C: [[45, 0], [41, 1], [45, 0], [40, 1]] },
+    lead: 'grit', counter: 'pad', comp: 'pad', compPat: 'drone', bass: 'synthbass', bassPat: 'pulse', drums: 'industrial' },
+  { id: 'calypso', tempo: 118, scale: 'major', prog: { A: [[45, 1], [50, 1], [52, 1], [50, 1]], B: [[50, 1], [52, 1], [45, 1], [45, 1]], C: [[45, 1], [52, 1], [50, 1], [45, 1]] },
+    lead: 'steelpan', counter: 'uke', comp: 'uke', compPat: 'skank', bass: 'pickbass', bassPat: 'reggae', drums: 'calypso' },
   { id: 'synthwave', tempo: 132, scale: 'minor',    prog: null, lead: 'bright', counter: 'pad', comp: 'pad', compPat: 'pad',     bass: 'synthbass', bassPat: 'drive',     drums: 'gated' },
   { id: 'techno',    tempo: 140, scale: 'minor',    prog: null, lead: 'acid', counter: 'stab', comp: 'stab', compPat: 'offbeat',  bass: 'acid',      bassPat: 'acid',      drums: 'four' },
 ];
@@ -1273,6 +1413,9 @@ function crunch(buf, rate, maxSecs) {
   return b;
 }
 // shared engine model: rpm through the gearbox -> firing frequency of a 4-cylinder four-stroke
+// the recorded engine loops: natural firing rates of the idle and high-rev slices (see assets/CREDITS.md)
+const ENG_LO_HZ = 62, ENG_HI_HZ = 149;
+const engRate = (fire, base, lo = 0.55, hi = 2.6) => clamp(fire / base, lo, hi);   // keep a real recording out of chipmunk territory
 function engineFire(p, gears, thr) {
   const g = Math.min(gears - 1, Math.floor(p * gears)), local = p * gears - g;
   const rpm = 900 + local * (gears > 2 ? 4800 : 5200) + g * 350 + (thr > 0 ? 120 : 0);
@@ -1290,6 +1433,11 @@ function initAudio() {
   audio.reverb.buffer = mkBuf(a.sampleRate, 2.2, (t, i, c) => rnd() * Math.pow(1 - t / 2.2, 3.2), 0, 2);
   audio.reverbIn = a.createGain(); audio.reverbIn.gain.value = 0; audio.reverbIn.connect(audio.reverb); audio.reverb.connect(audio.master);
   audio.mp3 = makeJukebox(a);
+  // rain hiss (Sound Blaster era onwards)
+  { const s = a.createBufferSource(); s.buffer = mkBuf(a.sampleRate, 2, () => rnd()); s.loop = true;
+    const hp = a.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 900;
+    const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 7000;
+    audio.rainG = a.createGain(); audio.rainG.gain.value = 0; s.connect(hp); hp.connect(lp); lp.connect(audio.rainG); audio.rainG.connect(audio.master); s.start(); }
   setInterval(musicTick, 25);
   setAudioEra(era);
   loadSamples();
@@ -1347,7 +1495,7 @@ function rigAmiga() {
   const sm = audio.smp;
   if (sm) Object.assign(S, { kick: crunch(sm.kick, 12000), snare: crunch(sm.snare, 12000), hat: crunch(sm.hat, 12000), ohat: crunch(sm.ohat, 12000, 0.3),
                               engine: crunch(sm.engine_lo, R), crash: crunch(sm.crash, R, 1.2) });
-  const ENG_BASE = sm ? 45 : 64;
+  const ENG_BASE = sm ? ENG_LO_HZ : 64;
   const cycCache = {}, cyc = (tb) => cycCache[tb] || (cycCache[tb] = (() => {        // 64-sample 8-bit instrument waves
     const f = harmonics(TIMBRES[tb].h); let mx = 0; for (let i = 0; i < 64; i++) mx = Math.max(mx, Math.abs(f(i / 64)));
     return cycleBuf(R, 64, x => f(x) / mx * 0.9, 8); })());
@@ -1367,7 +1515,9 @@ function rigAmiga() {
       }
       if (ev.kick) ch[2].play(S.kick, 1, 0.8 * v, t);
       else if (ev.snare) ch[2].play(S.snare, 1, 0.6 * v, t);
+      else if (ev.metal) ch[2].play(S.crash, 1.9, 0.4 * v, t, 0.18);
       else if (ev.clap) ch[2].play(S.snare, 1.25, 0.55 * v, t);
+      else if (ev.rim) ch[2].play(S.snare, 2.1, 0.32 * v, t, 0.06);
       else if (ev.tom) ch[2].play(S.kick, 2.3, 0.45 * v, t);
       else if (ev.hat) ch[2].play(ev.ohat && S.ohat ? S.ohat : S.hat, 1, 0.35 * v, t);
       if (ev.cymbal && !ev.kick && S.ohat) ch[2].play(S.ohat, 0.8, 0.5, t);
@@ -1377,7 +1527,7 @@ function rigAmiga() {
       if (t < c.busyUntil) return;
       if (!live) { if (engOn) { c.stop(t); engOn = false; } return; }
       if (!engOn) { c.play(S.engine, 1, 0.3, t, 0, true); engOn = true; }
-      c.src.playbackRate.setTargetAtTime(engineFire(p, 2, thr) / ENG_BASE, t, 0.05);
+      c.src.playbackRate.setTargetAtTime(engRate(engineFire(p, 2, thr), ENG_BASE), t, 0.05);
       c.env.gain.setTargetAtTime(0.22 + 0.12 * Math.max(0, thr), t, 0.05);
     },
     crash() { const t = a.currentTime; ch[3].play(S.crash, 1, 0.7, t, 0.7); ch[3].busyUntil = t + 0.7; engOn = false; },  // the crash steals the engine's channel
@@ -1426,7 +1576,7 @@ function rigAdlib() {
               crash: mkBuf(SB, 0.9, t => (rnd() * 0.9 + Math.sin(2 * Math.PI * 60 * t) * 0.4) * Math.exp(-t * 4), 8) };
   const sm = audio.smp;
   if (sm) { S.engine = crunch(sm.engine_lo, SB); S.crash = crunch(sm.crash, SB, 1.4); }
-  const ENG_BASE = sm ? 45 : 50;
+  const ENG_BASE = sm ? ENG_LO_HZ : 50;
   const eng = makeChan(sbBus, 0), fx = makeChan(sbBus, 0);
   let engOn = false;
   return {
@@ -1439,12 +1589,14 @@ function rigAdlib() {
       if (ev.comp) ev.comp.notes.forEach(n => fm(t, midi(n), ev.comp.len, P(ev.comp.tb, v * 0.5)));
       if (ev.kick) drum(t, 'kick', v); if (ev.snare) drum(t, 'snare', v); if (ev.clap) drum(t, 'snare', v * 0.8);
       if (ev.tom) drum(t, 'tom', v); if (ev.hat) drum(t, ev.ohat ? 'ohat' : 'hat', v); if (ev.cymbal) drum(t, 'cymbal', v);
+      if (ev.metal) fm(t, 420, 0.2, { ratio: 3.53, index: 3, idxEnd: 0.4, att: 0.001, dec: 0.12, sus: 0, rel: 0.12, vol: 0.16 * v });   // FM clang
+      if (ev.rim) fm(t, 1400, 0.03, { ratio: 1.41, index: 1.2, idxEnd: 0.2, att: 0.001, dec: 0.03, sus: 0, rel: 0.02, vol: 0.12 * v });
     },
     engine(p, live, thr) {
       const t = a.currentTime;
       if (!live) { if (engOn) { eng.stop(t); engOn = false; } return; }
       if (!engOn) { eng.play(S.engine, 1, 0.25, t, 0, true); engOn = true; }
-      eng.src.playbackRate.setTargetAtTime(engineFire(p, 4, thr) / ENG_BASE, t, 0.06);
+      eng.src.playbackRate.setTargetAtTime(engRate(engineFire(p, 4, thr), ENG_BASE), t, 0.06);
       eng.env.gain.setTargetAtTime(0.18 + 0.12 * Math.max(0, thr), t, 0.05);
     },
     crash() { fx.play(S.crash, 1, 0.8, a.currentTime, 0.9); },
@@ -1478,7 +1630,7 @@ function rigGUS(hd) {
   };
   const sm = audio.smp;
   if (sm) Object.assign(S, { kick: sm.kick, snare: sm.snare, hat: sm.hat, ohat: sm.ohat, cymbal: sm.cymbal, crash: sm.crash, engLo: sm.engine_lo, engHi: sm.engine_hi });
-  const HI_BASE = sm ? 126 : 90;
+  const LO_BASE = sm ? ENG_LO_HZ : 45, HI_BASE = sm ? ENG_HI_HZ : 90;
   const rate = f => f / base;
   const voice = (buf, r, vol, t, dur, pan, loop, att = 0.004) => {        // free voices = overlapping sounds
     const s = a.createBufferSource(), g = a.createGain(), p = a.createStereoPanner ? a.createStereoPanner() : null;
@@ -1501,6 +1653,7 @@ function rigGUS(hd) {
     return cycleBuf(R, N, x => f(x) / mx * 0.8); })());
   const note = (tb, n, t, dur, vol, pan) => {             // an instrument note: envelope, vibrato, musette detune
     const T = TIMBRES[tb], r = rate(midi(n)), att = T.env === 'pad' ? 0.3 : T.env === 'swell' ? 0.08 : 0.004;
+    if (T.env === 'pluck') vol *= 1.35;                   // plucked notes fade fast: give them a little more level
     const v1 = voice(cyc(tb), r, vol, t, dur, pan, true, att); shapeEnv(v1.g.gain, t + att, vol, T.env === 'swell' ? null : T);
     if (T.vib) { const l = a.createOscillator(), lg = a.createGain(); l.frequency.value = 5.5; lg.gain.value = r * T.vib; l.connect(lg); lg.connect(v1.s.playbackRate); l.start(t); l.stop(t + dur + 0.5); }
     if (T.mus) voice(cyc(tb), r * 1.007, vol * 0.7, t, dur, -pan || 0.3, true, att);   // accordion: two reeds, slightly apart
@@ -1519,6 +1672,8 @@ function rigGUS(hd) {
       if (ev.snare) { const sn = voice(S.snare, 1, 0.55 * v, t, 0, 0.1); if (ev.big) sn.g.connect(audio.reverbIn); }
       if (ev.clap) { voice(S.snare, 1.2, 0.4 * v, t, 0, -0.15); voice(S.snare, 1.25, 0.35 * v, t + 0.012, 0, 0.15); }
       if (ev.tom) voice(S.kick, 2.1, 0.45 * v, t, 0, ev.i % 2 ? 0.3 : -0.3);
+      if (ev.metal) { voice(S.crash, 1.8 + Math.random() * 0.3, 0.32 * v, t, 0.22, ev.i < 8 ? -0.5 : 0.5); }
+      if (ev.rim) voice(S.snare, 2.2, 0.22 * v, t, 0.05, 0.25);
       if (ev.hat) voice(ev.ohat ? S.ohat : S.hat, 1, 0.3 * v, t, 0, 0.35);
       if (ev.cymbal) voice(S.cymbal, 1, 0.5, t, 0, -0.3);
     },
@@ -1527,7 +1682,7 @@ function rigGUS(hd) {
       if (!live) { if (eng) { eng.lo.g.gain.setTargetAtTime(0, t, 0.1); eng.hi.g.gain.setTargetAtTime(0, t, 0.1); } return; }
       if (!eng) eng = { lo: voice(S.engLo, 1, 0, t, 0, 0, true), hi: voice(S.engHi, 1, 0, t, 0, 0, true) };
       const fire = engineFire(p, 5, thr), x = clamp((fire - 55) / 90, 0, 1), load = 0.6 + 0.4 * Math.max(0, thr);   // 5-speed box
-      eng.lo.s.playbackRate.setTargetAtTime(fire / 45, t, 0.05); eng.hi.s.playbackRate.setTargetAtTime(fire / HI_BASE, t, 0.05);
+      eng.lo.s.playbackRate.setTargetAtTime(engRate(fire, LO_BASE), t, 0.05); eng.hi.s.playbackRate.setTargetAtTime(engRate(fire, HI_BASE, 0.5, 1.9), t, 0.05);
       eng.lo.g.gain.setTargetAtTime(0.3 * (1 - x) * load, t, 0.05); eng.hi.g.gain.setTargetAtTime(0.26 * x * load, t, 0.05);
       const sk = Math.abs(steer) > 0.75 && p > 0.6 ? 0.12 * (Math.abs(steer) - 0.75) * 4 : 0;          // tyre squeal
       if (sk && !sq) sq = voice(S.squeal, 1, 0, t, 0, 0, true);
@@ -1567,8 +1722,12 @@ function makeJukebox(a) {
   J.pick = () => {
     const ok = J.list.map((t, i) => i).filter(i => !J.bad.has(i));
     if (!ok.length) { J.failed = true; return -1; }
-    const pool = ok.length > 1 ? ok.filter(i => i !== J.last) : ok;
-    return (J.last = pool[Math.floor(Math.random() * pool.length)]);
+    const song = i => (J.list[i].title || J.list[i].file).replace(/\s*\(.*\)\s*$/, '').toLowerCase();   // "Song (Take 2)" counts as "Song"
+    const recent = J.recent || (J.recent = []), keep = Math.min(3, new Set(ok.map(song)).size - 1);   // avoid the last few songs
+    let pool = ok.filter(i => !recent.slice(-keep).includes(song(i)));
+    if (!pool.length) pool = ok.length > 1 ? ok.filter(i => i !== J.last) : ok;
+    J.last = pool[Math.floor(Math.random() * pool.length)]; recent.push(song(J.last));
+    return J.last;
   };
   J.prime = (slot) => {                       // load a random track into a player (the "next in memory")
     const idx = J.pick(); if (idx < 0) return;
@@ -1637,6 +1796,8 @@ function conductorStep() {
   if (st.bassPat === 'drive') { if (lvl >= 1 || i % 2 === 0) B(root - 12 + (lvl ? BASS[i] : 0), 0.9); }
   else if (st.bassPat === 'acid') { if (lvl >= 1 || i % 2 === 0) B(root - 12 + ACID[i], 0.8); }
   else if (st.bassPat === 'rootfifth') { const m = { 0: 0, 8: 7 }; if (lvl >= 2) Object.assign(m, { 6: 12, 14: 7 }); if (i in m) B(root - 12 + m[i], 3); }
+  else if (st.bassPat === 'pulse') { if (lvl >= 2 || i % 2 === 0) B(root - 12 + (lvl >= 1 && i === 14 ? 12 : 0), 0.7); }          // EBM 16th pulse
+  else if (st.bassPat === 'reggae') { const m = lvl >= 1 ? { 0: 0, 6: 7, 10: 12, 14: 7 } : { 0: 0, 8: 7 }; if (i in m) B(root - 12 + m[i], 2); }
   else if (st.bassPat === 'oompah') { if (i === 0) B(root - 12, 3); else if (i === 8) B(root - 17, 3); else if (lvl >= 3 && (i === 6 || i === 14)) B(root - 12 + 4, 1.5); }
   // ---- lead (re-harmonised onto this style's chords)
   const ln = lvl >= 1 && LEAD[sec][bar].find(n => n[0] === i);
@@ -1653,6 +1814,8 @@ function conductorStep() {
   else if (st.compPat === 'strum') { if (i === 0 || i === 6 || (lvl >= 2 && i === 10)) comp(2.5); }
   else if (st.compPat === 'oompah') { if (i === 4 || i === 12 || (lvl >= 3 && (i === 2 || i === 10))) comp(1.4); }
   else if (st.compPat === 'pad') { if (i === 0) comp(15.5); if (lvl >= 2 && i % 2 === 0) ev.arp = { n: ch[(i / 2) % 3] + 24, tb: 'bright' }; }
+  else if (st.compPat === 'skank') { if (i % 4 === 2 && (lvl >= 1 || i === 2 || i === 10)) comp(0.6); }                  // offbeat ukulele chops
+  else if (st.compPat === 'drone') { if (i === 0) comp(15.5, 0); }                                                        // dark low pad
   else if (st.compPat === 'offbeat') { if ((lvl >= 1 && i % 4 === 2) || (lvl === 0 && i === 0)) comp(0.8); }
   // ---- drums
   const d = st.drums, has = (...s) => s.includes(i);
@@ -1661,6 +1824,8 @@ function conductorStep() {
     else if (d === 'gallop') { ev.kick = has(0, 8); ev.tom = has(0, 3, 4, 7, 8, 11, 12, 15); ev.snare = lvl >= 2 && has(12); ev.hat = lvl >= 3 && i % 2 === 0; }
     else if (d === 'oompah') { ev.kick = has(0, 8); ev.snare = has(4, 12); ev.hat = lvl >= 2 && i % 4 === 2; }
     else if (d === 'gated') { ev.kick = has(0, 8) || (lvl >= 2 && has(7)); ev.snare = has(4, 12); ev.big = ev.snare; ev.hat = lvl >= 3 || (lvl >= 2 && i % 2 === 0); }
+    else if (d === 'industrial') { ev.kick = i % 4 === 0; ev.snare = has(4, 12); ev.metal = (lvl >= 2 && has(6, 14)) || (lvl >= 3 && has(3, 11)); ev.hat = lvl >= 2 && i % 4 === 2; }
+    else if (d === 'calypso') { ev.kick = has(0, 8) || (lvl >= 2 && has(11)); ev.rim = has(3, 7, 11, 15); ev.clap = lvl >= 2 && has(4, 12); ev.hat = lvl >= 2 || (lvl >= 1 && i % 2 === 0); }
     else if (d === 'four') { ev.kick = lvl === 0 ? has(0, 8) : i % 4 === 0; ev.clap = lvl >= 2 && has(4, 12); ev.ohat = lvl >= 1 && i % 4 === 2; ev.hat = (lvl >= 3 && i % 2 === 1) || ev.ohat; }
   } else if (i === 0 || i === 8) ev.hat = true;            // cruising: just a tick of the hi-hat
   if (C.fill) { ev.kick = has(0); ev.snare = i >= 8 || i === 4; ev.tom = i >= 12; ev.hat = i < 8 && i % 2 === 0; ev.vel *= 0.9 + i / 40; }   // transition fill
@@ -1691,6 +1856,7 @@ function updateEngine() {
   if (!audio.ctx) return;
   if (audio.era !== era) setAudioEra(era);
   const live = state === 'race' || state === 'countdown' || (state === 'over' && speed > 0);
+  if (audio.rainG) audio.rainG.gain.setTargetAtTime(era >= 2 && live && settings.sound ? rainAmt * 0.11 : 0, audio.ctx.currentTime, 0.3);
   audio.rig.engine(speed / MAX_SPEED, live && settings.sound, Math.max(0, input.throttle), input.steer);
 }
 
@@ -1948,6 +2114,11 @@ function drawSegment(seg, p1, p2) {
   const x1 = p1.x, y1 = p1.y, w1 = p1.w, x2 = p2.x, y2 = p2.y, w2 = p2.w, hd = ERAS[era].hd;
   const gc = seg.snow ? SNOW_RGB[hd ? 0 : st] : (hd && st ? t.grassSoft : t.grassRGB[st]);
   ctx.fillStyle = mix(gc, fg, f); ctx.fillRect(0, y2, W, y1 - y2);
+  if (t.sea) {                                         // sand beach, then the sea on the right
+    const s1 = x1 + w1 * 2.7, s2 = x2 + w2 * 2.7, e1 = w1 * 0.1, e2 = w2 * 0.1;
+    poly(ctx, [s1, y1, W + 10, y1, W + 10, y2, s2, y2], mix(t.seaRGB[st], fg, f));
+    poly(ctx, [s1 - e1, y1, s1 + e1 * 0.3, y1, s2 + e2 * 0.3, y2, s2 - e2, y2], mix([248, 250, 252], fg, f));   // surf line
+  }
   const r1 = w1 / 7, r2 = w2 / 7;
   const rc = mix(t.rumbleRGB[st], fg, f);
   poly(ctx, [x1-w1-r1, y1, x1-w1, y1, x2-w2, y2, x2-w2-r2, y2], rc);
@@ -2044,6 +2215,7 @@ function render() {
 
   // falling snow above the snow line
   if (snowAmt > 0.01) drawSnow2D();
+  if (rainAmt > 0.01) drawRain2D();
   // particles
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
@@ -2091,6 +2263,20 @@ function postFX(yshift) {
   }
   ctx.fillStyle = vignette; ctx.fillRect(0, 0, W, H);
 }
+const drops = [];
+function drawRain2D() {
+  const n = Math.round(220 * rainAmt), sp = speed / MAX_SPEED;
+  while (drops.length < 220) drops.push({ x: Math.random(), y: Math.random(), s: 0.6 + Math.random() * 0.8 });
+  ctx.strokeStyle = 'rgba(205,214,226,.5)'; ctx.lineWidth = Math.max(1, K); ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const d = drops[i];
+    d.y += STEP * (1.6 + sp * 0.8) * d.s; d.x += STEP * (-0.12 + (d.x - 0.5) * sp * 1.2) * d.s;
+    if (d.y > 1 || d.x < 0 || d.x > 1) { d.y = Math.random() * 0.2 - 0.1; d.x = Math.random(); }
+    const L = (0.035 + sp * 0.04) * d.s;
+    ctx.moveTo(d.x * W, d.y * H); ctx.lineTo((d.x + 0.12 * L) * W, (d.y - L) * H);
+  }
+  ctx.stroke();
+}
 const flakes = [];
 function drawSnow2D() {
   const n = Math.round(140 * snowAmt);
@@ -2135,6 +2321,8 @@ const THEME3 = [
   { sunEl: 38, sunAz: 150, sun: '#fff1d6', sunI: 2.4, hemiSky: '#bfe3ff', hemiGnd: '#4a7a3a', hemiI: 0.6, bloom: 0.35, thr: 0.9,  fogN: 60, fogF: 340, ground: '#2e8a36' },
   { sunEl: 22, sunAz: -140, sun: '#ffd9a0', sunI: 2.5, hemiSky: '#ffd9a8', hemiGnd: '#b58a50', hemiI: 0.55, bloom: 0.35, thr: 0.9,  fogN: 50, fogF: 320, ground: '#d9a85e' },
   { sunEl: 45, sunAz: 120, sun: '#ffffff', sunI: 2.4, hemiSky: '#d6ecff', hemiGnd: '#2d5a33', hemiI: 0.6, bloom: 0.3,  thr: 0.92, fogN: 60, fogF: 360, ground: '#246f2e' },
+  { sunEl: 55, sunAz: 40,  sun: '#cfd6de', sunI: 0.55, hemiSky: '#a9b2bb', hemiGnd: '#3c4146', hemiI: 1.25, bloom: 0.2, thr: 0.95, fogN: 15, fogF: 230, ground: '#4a5056', disc: 0, wet: true },
+  { sunEl: 58, sunAz: 165, sun: '#fff4dc', sunI: 2.0, hemiSky: '#9fd4ff', hemiGnd: '#c9b483', hemiI: 0.5, bloom: 0.15, thr: 0.97, fogN: 110, fogF: 480, ground: '#d4bd85' },
   { sunEl: 4,  sunAz: 10,  sun: '#ff9a5a', sunI: 2.2, hemiSky: '#ff7a8a', hemiGnd: '#2a0f3d', hemiI: 0.7, bloom: 0.7,  thr: 0.75, fogN: 40, fogF: 300, ground: '#2c1238' },
   { sunEl: 32, sunAz: 15,  sun: '#9db0ff', sunI: 0.5, hemiSky: '#4b3a9a', hemiGnd: '#120d2a', hemiI: 0.7, bloom: 0.55, thr: 0.82, fogN: 40, fogF: 300, ground: '#141428', night: true },
 ];
@@ -2283,6 +2471,7 @@ function build3D(T, A) {
     const map = tex(c);
     const m = std({ map, roughness: 0.82, metalness: 0.0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     if (THEME3[ti].night) { m.emissiveMap = map; m.emissive = new T.Color(0xffffff); m.emissiveIntensity = 0.2; }
+    if (THEME3[ti].wet) { m.roughness = 0.22; m.metalness = 0.18; m.envMapIntensity = 1.4; }   // rain-soaked: mirror-ish sheen
     return m;
   });
   const groundMats = THEMES.map((t, ti) => {
@@ -2293,7 +2482,21 @@ function build3D(T, A) {
     });
     return std({ map: tex(c), roughness: 1 });
   });
-  const roadGeo = mkRibbon(2), groundGeo = mkRibbon(2);
+  const roadGeo = mkRibbon(2), groundGeo = mkRibbon(2), seaGeo = mkRibbon(2);
+  const waveTex = (() => { const t = new T.CanvasTexture(mk(256, 256, (g, w, h) => {      // normal map of little waves
+    const r2 = rng(5); g.fillStyle = 'rgb(128,128,255)'; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 900; i++) { const x = r2() * w, y = r2() * h, l = 6 + r2() * 26; g.strokeStyle = `rgb(${110 + r2() * 40 | 0},${90 + r2() * 30 | 0},255)`; g.lineWidth = 1.5 + r2() * 2; g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + l / 2, y - 3, x + l, y); g.stroke(); }
+  })); t.wrapS = t.wrapT = T.RepeatWrapping; return t; })();
+  const seaMat = std({ color: 0x125d99, roughness: 0.22, metalness: 0.0, envMapIntensity: 0.35, normalMap: waveTex, normalScale: new T.Vector2(0.6, 0.6), polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+  const sea = new T.Mesh(seaGeo, [new T.MeshBasicMaterial({ visible: false }), seaMat]); sea.frustumCulled = false; sea.receiveShadow = true; scene.add(sea);
+  // falling rain (shown on the rain stage)
+  const rainLines = (() => {
+    const n = isTouch ? 900 : 1700, arr = new Float32Array(n * 6);
+    for (let i = 0; i < n * 6; i += 6) { const x = (Math.random() - 0.5) * 50, y = Math.random() * 16 - 4, z = (Math.random() - 0.5) * 50; arr.set([x, y, z, x, y - 0.6, z], i); }
+    const g = new T.BufferGeometry(); g.setAttribute('position', new T.BufferAttribute(arr, 3));
+    const ln = new T.LineSegments(g, new T.LineBasicMaterial({ color: 0xc4ccd6, transparent: true, opacity: 0.45, depthWrite: false }));
+    ln.frustumCulled = false; ln.visible = false; scene.add(ln); return ln;
+  })();
   const road = new T.Mesh(roadGeo, roadMats); road.receiveShadow = true; road.frustumCulled = false;
   groundMats.push(std({ roughness: 0.9, map: tex(mk(256, 256, (g, w, h) => {      // index THEMES.length: snow
     g.fillStyle = '#e6edf5'; g.fillRect(0, 0, w, h); const r2 = rng(99);
@@ -2467,6 +2670,55 @@ function build3D(T, A) {
     const roof = std({ color: 0x15151f, roughness: 0.9 });
     mkIM('bldg' + i, new T.BoxGeometry(w, h, w).translate(0, h / 2, 0), [side, side, roof, roof, side, side], 120, true);
   });
+  // ---- downtown industrial & beachfront models ----
+  const corrTex = (doors) => tex(mk(256, 128, (g, w, h) => {
+    g.fillStyle = '#dcdcdc'; g.fillRect(0, 0, w, h);
+    for (let x = 0; x < w; x += 6) { g.fillStyle = x % 12 ? 'rgba(0,0,0,.11)' : 'rgba(255,255,255,.2)'; g.fillRect(x, 0, 3, h); }
+    if (doors) {
+      for (const dx of [28, 150]) { g.fillStyle = '#a3a9af'; g.fillRect(dx, 54, 78, 74); g.fillStyle = 'rgba(0,0,0,.25)'; for (let y = 54; y < 128; y += 5) g.fillRect(dx, y, 78, 1); }
+      g.fillStyle = '#26303a'; for (let x = 8; x < w; x += 22) g.fillRect(x, 14, 14, 10);
+      g.fillStyle = '#f2c200'; g.fillRect(0, 34, w, 4);
+    }
+  }));
+  const tooth = (i) => { const sh = new T.Shape(); sh.moveTo(0, 0); sh.lineTo(5.5, 0); sh.lineTo(0, 2.6); sh.closePath();
+    return new T.ExtrudeGeometry(sh, { depth: 12, bevelEnabled: false }).rotateY(Math.PI / 2).translate(-6, 9, -11 + (i + 1) * 5.5); };
+  const whGeo = A.mergeGeometries([ni(new T.BoxGeometry(12, 9, 22).translate(0, 4.5, 0)), A.mergeGeometries([0, 1, 2, 3].map(i => ni(tooth(i))))], true);
+  mkIM('warehouse', whGeo, [std({ map: corrTex(true), roughness: 0.7, metalness: 0.3 }), std({ color: 0x505860, roughness: 0.6, metalness: 0.4 })], 160, true);
+  const chimTex = tex(mk(64, 512, (g, w, h) => { g.fillStyle = '#8e3f2f'; g.fillRect(0, 0, w, h);
+    for (let y = 0; y < h; y += 8) { g.fillStyle = (y / 8) % 2 ? 'rgba(0,0,0,.08)' : 'rgba(255,255,255,.04)'; g.fillRect(0, y, w, 4); }
+    g.fillStyle = '#f0f0f0'; for (let i = 0; i < 3; i++) g.fillRect(0, 20 + i * 36, w, 16); g.fillStyle = '#1e1e1e'; g.fillRect(0, 0, w, 10); }));
+  mkIM('chimney', new T.CylinderGeometry(1.0, 1.6, 38, 16).translate(0, 19, 0), std({ map: chimTex, roughness: 0.9 }), 40, true);
+  const latTex = new T.CanvasTexture(mk(64, 64, (g, w, h) => { g.strokeStyle = '#fff'; g.lineWidth = 6; g.strokeRect(3, 0, w - 6, h); g.lineWidth = 4; g.beginPath(); g.moveTo(3, 0); g.lineTo(w - 3, h); g.stroke(); }));
+  latTex.wrapS = latTex.wrapT = T.RepeatWrapping;
+  const scaleUV = (geo, su, sv) => { const uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * su, uv.getY(i) * sv); return geo; };
+  const craneGeo = A.mergeGeometries([
+    A.mergeGeometries([ni(scaleUV(new T.BoxGeometry(1.8, 42, 1.8).translate(0, 21, 0), 1, 23)), ni(scaleUV(new T.BoxGeometry(1.4, 1.4, 34).translate(0, 42, 11), 24, 1)), ni(scaleUV(new T.BoxGeometry(1.2, 1.2, 10).translate(0, 42, -6), 8, 1))]),
+    A.mergeGeometries([ni(new T.BoxGeometry(2.4, 2.6, 3).translate(0, 41, -10)), ni(new T.BoxGeometry(2.2, 2.0, 2.2).translate(1.6, 40, 1)), ni(new T.BoxGeometry(0.06, 18, 0.06).translate(0, 32, 22)), ni(new T.BoxGeometry(0.7, 0.9, 0.7).translate(0, 22.6, 22))]),
+  ], true);
+  mkIM('crane', craneGeo, [std({ color: 0xf2c200, map: latTex, alphaTest: 0.5, side: T.DoubleSide, roughness: 0.6, metalness: 0.4 }), std({ color: 0xd9d9d9, roughness: 0.7 })], 20, true);
+  mkIM('container', new T.BoxGeometry(2.44, 2.6, 6.1).translate(0, 1.3, 0), std({ map: corrTex(false), roughness: 0.6, metalness: 0.35 }), 500, true);
+  const umbGeo = A.mergeGeometries([ni(new T.CylinderGeometry(0.035, 0.035, 2.4, 6).translate(0, 1.2, 0)), ni(new T.ConeGeometry(1.5, 0.55, 16, 1, true).translate(0, 2.4, 0))], true);
+  ['#e0242a', '#1660ff', '#ffb300'].forEach((c, i) => {
+    const stripes = tex(mk(256, 16, (g, w, h) => { for (let k = 0; k < 16; k++) { g.fillStyle = k % 2 ? '#ffffff' : c; g.fillRect(k * 16, 0, 16, h); } }));
+    mkIM('umbrella' + i, umbGeo, [std({ color: 0xdddddd, metalness: 0.6, roughness: 0.3 }), std({ map: stripes, side: T.DoubleSide, roughness: 0.8 })], 160, true);
+  });
+  const plankTex = (door) => tex(mk(64, 64, (g, w, h) => { g.fillStyle = '#f4f4f4'; g.fillRect(0, 0, w, h); g.fillStyle = 'rgba(0,0,0,.12)'; for (let x = 0; x < w; x += 8) g.fillRect(x, 0, 2, h);
+    if (door) { g.fillStyle = 'rgba(0,0,0,.28)'; g.fillRect(20, 18, 24, 46); g.fillStyle = '#ffffff'; g.fillRect(17, 15, 30, 4); } }));
+  const plankM = std({ map: plankTex(false), roughness: 0.8 }), doorM = std({ map: plankTex(true), roughness: 0.8 });
+  mkIM('hut', new T.BoxGeometry(2.2, 2.4, 2.4).translate(0, 1.2, 0), [doorM, plankM, plankM, plankM, plankM, plankM], 260, true);
+  const roofSh = new T.Shape(); roofSh.moveTo(-1.45, 0); roofSh.lineTo(1.45, 0); roofSh.lineTo(0, 1.0); roofSh.closePath();
+  mkIM('hutRoof', new T.ExtrudeGeometry(roofSh, { depth: 2.7, bevelEnabled: false }).translate(0, 2.4, -1.35), std({ color: 0xf6f6f6, roughness: 0.7 }), 260, true);
+  const lgGeo = A.mergeGeometries([
+    A.mergeGeometries([...[[-0.8, -0.8], [0.8, -0.8], [-0.8, 0.8], [0.8, 0.8]].map(([x, z]) => ni(new T.BoxGeometry(0.16, 2.3, 0.16).translate(x, 1.15, z))), ni(new T.BoxGeometry(2.3, 0.15, 2.3).translate(0, 2.3, 0)), ni(new T.BoxGeometry(0.5, 2.8, 0.08).rotateX(-0.45).translate(1.55, 1.2, 0).rotateY(0))]),
+    A.mergeGeometries([ni(new T.BoxGeometry(1.8, 1.4, 1.6).translate(0, 3.05, 0)), ni(new T.BoxGeometry(0.6, 0.35, 0.03).translate(0.95, 5.0, 0))]),
+    A.mergeGeometries([ni(new T.BoxGeometry(2.4, 0.12, 2.2).translate(0, 3.85, 0)), ni(new T.CylinderGeometry(0.03, 0.03, 1.5, 6).translate(0.65, 4.6, 0))]),
+  ], true);
+  mkIM('lifeguard', lgGeo, [std({ color: 0xc9a26b, roughness: 0.9 }), std({ color: 0xd6332b, roughness: 0.6 }), std({ color: 0xf4f4f4, roughness: 0.6 })], 20, true);
+  const WH_COL = ['#9a4a3a', '#7d8a96', '#a8763e', '#5f6b5e'].map(c => new T.Color(c));
+  const HUT_COL = ['#ff9eb5', '#8fd3ff', '#a8e6a1', '#ffe28a', '#c9a7ff'].map(c => new T.Color(c));
+  const BOX_COL = ['#1f5fa8', '#c0392b', '#e67e22', '#27885a', '#8e9aa3', '#6c3483'].map(c => new T.Color(c));
+  for (const k of ['warehouse', 'hut', 'container']) { IM[k].setColorAt(0, new T.Color()); IM[k].instanceColor.setUsage(T.DynamicDrawUsage); }
+
   // checkpoint / start gantries (plain meshes)
   const gantry = (label, checker) => {
     const grp = new T.Group();
@@ -2832,7 +3084,17 @@ function build3D(T, A) {
       gp[r*6+3] = px[r] + cx * halfGround; gp[r*6+4] = py[r] - 0.04; gp[r*6+5] = pz[r] + sz * halfGround;
       const gv = (base.index - B3 + r) * SEG_M / 6;
       gu[r*4] = 0; gu[r*4+1] = gv; gu[r*4+2] = halfGround * 2 / 6; gu[r*4+3] = gv;
+      const sp3 = seaGeo.attributes.position.array, su = seaGeo.attributes.uv.array, sIn = 16, sOut = 700;
+      sp3[r*6] = px[r] + cx * sIn; sp3[r*6+1] = py[r] - 0.02; sp3[r*6+2] = pz[r] + sz * sIn;
+      sp3[r*6+3] = px[r] + cx * sOut; sp3[r*6+4] = py[r] - 0.02; sp3[r*6+5] = pz[r] + sz * sOut;
+      su[r*4] = 0; su[r*4+1] = gv * 0.5; su[r*4+2] = (sOut - sIn) / 12; su[r*4+3] = gv * 0.5;
     }
+    seaGeo.attributes.position.needsUpdate = true; seaGeo.attributes.uv.needsUpdate = true; seaGeo.computeVertexNormals();
+    seaGeo.clearGroups();
+    { let start = 0, k0 = THEMES[segments[pi[0]].theme].sea ? 1 : 0;
+      for (let r = 1; r < ROWS - 1; r++) { const k1 = THEMES[segments[pi[r]].theme].sea ? 1 : 0; if (k1 !== k0) { seaGeo.addGroup(start * 6, (r - start) * 6, k0); start = r; k0 = k1; } }
+      seaGeo.addGroup(start * 6, (ROWS - 1 - start) * 6, k0); }
+    waveTex.offset.set(performance.now() * 0.00002, performance.now() * 0.00005);
     for (const g of [roadGeo, groundGeo]) {
       g.attributes.position.needsUpdate = true; g.attributes.uv.needsUpdate = true; g.computeVertexNormals();
       g.clearGroups();
@@ -2888,7 +3150,7 @@ function build3D(T, A) {
     // sun sits ahead of the start line's direction, fixed in the world
     const sdir = new T.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el));
     skyMat.uniforms.sunDir.value.copy(sdir);
-    skyMat.uniforms.sunCol.value.copy(col(lA.sun, lB.sun)).multiplyScalar(lB.night ? 0.6 : 1);
+    skyMat.uniforms.sunCol.value.copy(col(lA.sun, lB.sun)).multiplyScalar((lB.night ? 0.6 : 1) * lerp(lA.disc ?? 1, lB.disc ?? 1, bl));   // no sun disc under the overcast
     sun.color.copy(col(lA.sun, lB.sun)); sun.intensity = lerp(lA.sunI, lB.sunI, bl);
     sun.position.set(carX + sdir.x * 120, pc.y + Math.max(sdir.y, 0.12) * 120, carZ + sdir.z * 120);
     sun.target.position.set(carX - Math.sin(pc.h) * 15, pc.y, carZ + Math.cos(pc.h) * 15);
@@ -2900,6 +3162,22 @@ function build3D(T, A) {
     if (snowAmt > 0) {
       scene.fog.color.lerp(cB.set('#dde6ef'), snowAmt * 0.7); skyMat.uniforms.bot.value.lerp(cB.set('#e4ebf3'), snowAmt * 0.7);
       hemi.groundColor.lerp(cB.set('#dfe8f2'), snowAmt); scene.fog.far = lerp(scene.fog.far, 260, snowAmt);
+    }
+    rainLines.visible = rainAmt > 0.02;
+    if (rainLines.visible) {
+      const ra = rainLines.geometry.attributes.position.array, fwdX = Math.sin(camH), fwdZ = -Math.cos(camH), mv = speed * M3 / 60;
+      for (let i = 0; i < ra.length; i += 6) {
+        const fall = (14 + (i % 5)) / 60;
+        ra[i + 1] -= fall; ra[i] -= fwdX * mv; ra[i + 2] -= fwdZ * mv;
+        const dx = ra[i] - camera.position.x, dz = ra[i + 2] - camera.position.z;
+        if (ra[i + 1] < camera.position.y - 5 || dx * dx + dz * dz > 700) {
+          const a = Math.random() * Math.PI * 2, rr = 2 + Math.random() * 24;
+          ra[i] = camera.position.x + fwdX * 10 + Math.cos(a) * rr; ra[i + 2] = camera.position.z + fwdZ * 10 + Math.sin(a) * rr; ra[i + 1] = camera.position.y + 3 + Math.random() * 10;
+        }
+        const streak = 0.5 + speed / MAX_SPEED * 0.6;                       // streaks lengthen (and lean) with speed
+        ra[i + 3] = ra[i] + fwdX * streak * 0.6; ra[i + 4] = ra[i + 1] + streak; ra[i + 5] = ra[i + 2] + fwdZ * streak * 0.6;
+      }
+      rainLines.geometry.attributes.position.needsUpdate = true; rainLines.material.opacity = 0.45 * rainAmt;
     }
     snowPts.visible = snowAmt > 0.02;
     if (snowPts.visible) {
@@ -2964,6 +3242,20 @@ function build3D(T, A) {
         }
         if (key === 'board') { yaw = -h + (s.offset < 0 ? 0.25 : -0.25); sc = 1; place(IM.posts, counts.posts++, x, py[r], z, yaw, 1); key = 'board' + s.i; }
         else if (key === 'bldg') { key = 'bldg' + s.i; yaw = -h; sc = 1; }
+        else if (key === 'umbrella') key = 'umbrella' + s.i;
+        else if (key === 'warehouse') { yaw = -h; sc = 1; if (counts.warehouse < 160) IM.warehouse.setColorAt(counts.warehouse, WH_COL[s.i]); }
+        else if (key === 'hut') { yaw = -h; sc = 1; if (counts.hut < 260) { IM.hut.setColorAt(counts.hut, HUT_COL[s.i]); place(IM.hutRoof, counts.hutRoof++, x, py[r], z, yaw, 1); } }
+        else if (key === 'lifeguard') { yaw = -h + Math.PI; sc = 1; }
+        else if (key === 'containers') {                       // a little stack of shipping containers
+          const hash = seg.index * 31 + s.i * 7;
+          for (let c = 0; c < 2; c++) { const levels = 1 + (hash + c * 5) % 3;
+            for (let l = 0; l < levels && counts.container < 500; l++) {
+              const lx = x + Math.cos(h) * (c - 0.5) * 2.6, lz = z + Math.sin(h) * (c - 0.5) * 2.6;
+              IM.container.setColorAt(counts.container, BOX_COL[(hash + c * 3 + l * 2) % BOX_COL.length]);
+              place(IM.container, counts.container++, lx, py[r] + l * 2.6, lz, -h + ((hash + l) % 3 - 1) * 0.05, 1);
+            } }
+          continue;
+        }
         const im = IM[key]; if (!im || counts[key] >= im.instanceMatrix.count) continue;
         place(im, counts[key]++, x, py[r] - (key.startsWith('rock') ? 0.15 : 0), z, yaw, sc);
       }
@@ -2978,7 +3270,7 @@ function build3D(T, A) {
         cm.bodyIM.setColorAt(cm.n, carColor[car.ci]); cm.n++;
       }
     }
-    for (const key in IM) { IM[key].count = counts[key]; IM[key].instanceMatrix.needsUpdate = true; }
+    for (const key in IM) { IM[key].count = counts[key]; IM[key].instanceMatrix.needsUpdate = true; if (IM[key].instanceColor) IM[key].instanceColor.needsUpdate = true; }
     for (const type in carModels) {
       const cm = carModels[type]; cm.bodyIM.count = cm.detIM.count = cm.n;
       cm.bodyIM.instanceMatrix.needsUpdate = cm.detIM.instanceMatrix.needsUpdate = true;
@@ -3147,6 +3439,8 @@ function frame(now) {
   }
   const psnow = findSegment(position + PLAYER_Z).snow ? 1 : 0;
   snowAmt += (psnow - snowAmt) * Math.min(1, dt * 1.2);
+  const prain = THEMES[findSegment(position + PLAYER_Z).theme].rain ? 1 : 0;
+  rainAmt += (prain - rainAmt) * Math.min(1, dt * 0.8);
   render();
   quantizeFrame(); frameNo++;
   if (state !== 'title') updateHUD();
