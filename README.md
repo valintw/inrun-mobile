@@ -24,7 +24,16 @@ The audio hardware evolves with the graphics (all synthesised live in the browse
 | 1989 · Amiga | **4-channel Paula** — 3-channel tracker tune with 8-bit samples incl. recorded drums (hard-panned L/R), 1 channel for the sampled engine; crashes steal it |
 | 1992 · VGA | **AdLib FM** — 2-operator FM bass, brass lead, pads and rhythm-mode drums; **Sound Blaster** 8-bit digitised engine and crashes |
 | 1996 · SVGA | **Gravis Ultrasound-style mod** — many 16-bit stereo channels with recorded drums, harmonies, echo and reverb; overlapping sampled SFX, 5-speed engine crossfading two samples, tyre squeal |
-| Today · HD | **Streamed MP3** — "Loading Bar Blues" (`assets/music/hd.mp3`, see `assets/music/README.md`); falls back to a fuller synthesised score if it can't load |
+| Today · HD | **Streamed MP3 playlist**, shuffled — "Loading Bar Blues", "Chip on Your Shoulder", "Custom Chip Blues" (`assets/music/playlist.json`, see `assets/music/README.md`); the next track is loaded when the current one is half played; falls back to a fuller synthesised score |
+
+### Adaptive music (iMUSE-style)
+In the tracker/synth eras the score reacts to the game, in the spirit of LucasArts' iMUSE:
+- **Vertical layering by speed** — four intensity levels (cruise → flat out) add or remove parts (drums, lead, arpeggios,
+  counter-melody, 16th hi-hats), always switching on a bar line; tempo rises ~15% and hits get harder with speed.
+- **Horizontal re-sequencing by stage** — the same theme is re-orchestrated per stage: surf-pop (Coastline), spaghetti
+  western with twang guitar and whistle (Desert Run), oom-pah polka with accordion, flugelhorn and tuba (Alpine Pass),
+  synthwave (Sunset Blvd) and techno with acid bass (Neon City). Crossing a checkpoint plays a one-bar fill, then the
+  new arrangement enters at the top of a phrase. Game over ends on a final chord.
 
 ## Controls
 - **Hold the phone sideways** like a steering wheel.

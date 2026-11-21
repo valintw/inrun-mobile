@@ -1,8 +1,15 @@
-# HD-era soundtrack
+# HD-era soundtrack (playlist)
 
-The final ("Today") era streams its music from **`assets/music/hd.mp3`** (looped), the way games moved to
-CD/streamed audio. Drop a track here with that exact name.
+The final ("Today") era streams music from the tracks listed in **`assets/music/playlist.json`**:
 
-- Use music you have the rights to distribute (your own, CC0, or CC BY with credit added to `assets/CREDITS.md`).
-- A loopable 2–4 minute track works best; aim for 128–192 kbps to keep the download reasonable.
-- If the file is missing or can't be decoded, the HD era falls back to the game's synthesised score.
+```json
+{ "tracks": [ { "file": "my-track.mp3", "title": "My Track" } ] }
+```
+
+- Tracks play in random order, never the same track twice in a row (when there's more than one).
+- Only one track is downloaded up front (when the SVGA era starts, a lap early). Once the current track is
+  half played, the next random track is loaded into a second player so it starts instantly when the current one ends.
+- A "♪ NOW PLAYING" message shows when each track starts.
+- To add a track: drop the MP3 in this folder and add an entry to `playlist.json`.
+- Use music you have the rights to distribute, and add a credit to `assets/CREDITS.md` if needed.
+- If no track can be loaded, the HD era falls back to the game's synthesised score.
