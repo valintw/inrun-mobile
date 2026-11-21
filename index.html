@@ -1150,24 +1150,61 @@ function readInput(dt) {
 const audio = { ctx: null, era: -1 };
 const midi = n => 440 * Math.pow(2, (n - 69) / 12);
 
-// ---- the shared composition: A minor, 138 bpm, 16th-note grid, 4-bar sections ----
-const SONG_BPM = 138, STEP_T = 60 / SONG_BPM / 4;
-const SECTIONS = {
-  A: { chords: [[45, 0], [41, 1], [48, 1], [43, 1]], kick: [0, 6, 8, 11],
-       lead: [[[0,76,3],[3,81,3],[6,84,2],[8,83,2],[10,81,2],[12,76,4]],
-              [[0,77,3],[3,81,3],[6,84,2],[8,86,2],[10,84,2],[12,81,4]],
-              [[0,79,3],[3,84,3],[6,88,2],[8,86,2],[10,84,2],[12,79,4]],
-              [[0,83,3],[3,86,3],[6,91,2],[8,89,2],[10,86,2],[12,83,2],[14,81,1],[15,79,1]]] },
-  B: { chords: [[41, 1], [43, 1], [40, 0], [45, 0]], kick: [0, 4, 8, 12],
-       lead: [[[0,81,5],[6,84,5],[12,89,2],[14,88,2]],
-              [[0,83,5],[6,86,5],[12,91,2],[14,89,2]],
-              [[0,79,5],[6,83,5],[12,88,2],[14,86,2]],
-              [[0,81,10],[12,84,2],[14,83,2]]] },
-  C: { chords: [[45, 0], [41, 1], [43, 1], [45, 0]], kick: [0, 8], lead: [[], [], [], []] },   // breakdown
+// ---- the shared theme: A minor, 16th-note grid, 4-bar sections (re-orchestrated per stage, iMUSE style) ----
+const STEP_T = 60 / 138 / 4;                       // nominal step length (the conductor varies the real tempo)
+const BASE_PROG = { A: [[45, 0], [41, 1], [48, 1], [43, 1]], B: [[41, 1], [43, 1], [40, 0], [45, 0]], C: [[45, 0], [41, 1], [43, 1], [45, 0]] };
+const LEAD = {
+  A: [[[0,76,3],[3,81,3],[6,84,2],[8,83,2],[10,81,2],[12,76,4]],
+      [[0,77,3],[3,81,3],[6,84,2],[8,86,2],[10,84,2],[12,81,4]],
+      [[0,79,3],[3,84,3],[6,88,2],[8,86,2],[10,84,2],[12,79,4]],
+      [[0,83,3],[3,86,3],[6,91,2],[8,89,2],[10,86,2],[12,83,2],[14,81,1],[15,79,1]]],
+  B: [[[0,81,5],[6,84,5],[12,89,2],[14,88,2]],
+      [[0,83,5],[6,86,5],[12,91,2],[14,89,2]],
+      [[0,79,5],[6,83,5],[12,88,2],[14,86,2]],
+      [[0,81,10],[12,84,2],[14,83,2]]],
+  C: [[], [], [], []],                              // breakdown
 };
 const ORDER = ['A', 'A', 'B', 'B', 'A', 'C'];
 const BASS = [0, 0, 12, 0, 0, 12, 0, 12, 0, 0, 12, 0, 7, 12, 0, 12];
+const ACID = [0, 0, 12, 0, 3, 0, 12, 0, 0, 7, 0, 12, 0, 0, 10, 0];
 const chordNotes = (root, maj) => [root, root + (maj ? 4 : 3), root + 7];
+const SCALES = { minor: [9, 11, 0, 2, 4, 5, 7], major: [9, 11, 1, 2, 4, 6, 8], harmonic: [9, 11, 0, 2, 4, 5, 8] };
+
+// Instrument library: harmonic recipe (for sampled eras), envelope, vibrato, musette detune and an FM patch
+// fm: [ratio, index, indexEnd, attack, decay, sustain, release, volume]
+const SAW = Array.from({ length: 16 }, (_, k) => 1 / (k + 1));
+const TIMBRES = {
+  bright:    { h: SAW.map((v, k) => v * Math.exp(-k * 0.08)), env: 'sus', fm: [1, 0.6, 2.6, 0.03, 0.3, 0.8, 0.12, 0.2] },
+  twang:     { h: [1, .9, .7, .55, .5, .4, .3, .25, .2, .15, .12, .1], env: 'pluck', dec: 5, vib: 0.002, fm: [1, 3, 0.2, 0.002, 0.25, 0.12, 0.1, 0.22] },
+  whistle:   { h: [1, 0, 0.04], env: 'swell', vib: 0.012, fm: [1, 0.05, 0.05, 0.06, 0.3, 0.9, 0.1, 0.15] },
+  accordion: { h: [1, .75, .9, .45, .6, .3, .4, .2, .25, .15], env: 'sus', vib: 0.004, mus: true, fm: [1, 1.5, 1.2, 0.03, 0.2, 0.9, 0.06, 0.16] },
+  flugel:    { h: [1, .5, .22, .1, .05], env: 'swell', vib: 0.006, fm: [1, 0.3, 1.2, 0.09, 0.4, 0.85, 0.15, 0.17] },
+  tuba:      { h: [1, .65, .3, .12, .05], env: 'stacc', fm: [1, 1.2, 0.5, 0.015, 0.12, 0.5, 0.05, 0.34] },
+  marimba:   { h: [1, 0, 0, .25, 0, 0, 0, 0, 0, .1], env: 'pluck', dec: 10, fm: [4, 2, 0.05, 0.001, 0.18, 0, 0.08, 0.14] },
+  pad:       { h: SAW.map((v, k) => v * Math.exp(-k * 0.25)), env: 'pad', fm: [2, 0.35, 0.8, 0.25, 0.8, 0.7, 0.4, 0.06] },
+  pickbass:  { h: [1, .6, .4, .25, .15, .1, .06], env: 'pluck', dec: 3.5, fm: [1, 2.2, 0.35, 0.005, 0.12, 0.6, 0.05, 0.32] },
+  synthbass: { h: SAW.map((v, k) => v * Math.exp(-k * 0.12)), env: 'sus', fm: [1, 2.5, 0.5, 0.005, 0.15, 0.7, 0.05, 0.32] },
+  acid:      { h: SAW.slice(0, 14), env: 'pluck', dec: 6, fm: [1, 4, 0.3, 0.002, 0.1, 0.4, 0.05, 0.3] },
+  stab:      { h: [1, .3, .5, .1, .3, .05, .2], env: 'stacc', fm: [1, 1, 0.5, 0.002, 0.1, 0.3, 0.05, 0.12] },
+};
+// One style ("cue") per stage. Same theme, different band — like Monkey Island 2's Woodtick.
+const STYLES = [
+  { id: 'surf',      tempo: 138, scale: 'minor',    prog: null, lead: 'bright', counter: 'marimba', comp: 'marimba', compPat: 'arp',     bass: 'pickbass',  bassPat: 'drive',     drums: 'rock' },
+  { id: 'western',   tempo: 122, scale: 'harmonic', prog: { A: [[45, 0], [43, 1], [41, 1], [40, 1]], B: [[41, 1], [40, 1], [45, 0], [40, 1]], C: [[45, 0], [43, 1], [41, 1], [40, 1]] },
+    lead: 'twang', counter: 'whistle', comp: 'twang', compPat: 'strum', bass: 'pickbass', bassPat: 'rootfifth', drums: 'gallop' },
+  { id: 'polka',     tempo: 150, scale: 'major',    prog: { A: [[45, 1], [40, 1], [45, 1], [40, 1]], B: [[50, 1], [45, 1], [40, 1], [45, 1]], C: [[45, 1], [50, 1], [40, 1], [45, 1]] },
+    lead: 'accordion', counter: 'flugel', comp: 'accordion', compPat: 'oompah', bass: 'tuba', bassPat: 'oompah', drums: 'oompah' },
+  { id: 'synthwave', tempo: 132, scale: 'minor',    prog: null, lead: 'bright', counter: 'pad', comp: 'pad', compPat: 'pad',     bass: 'synthbass', bassPat: 'drive',     drums: 'gated' },
+  { id: 'techno',    tempo: 140, scale: 'minor',    prog: null, lead: 'acid', counter: 'stab', comp: 'stab', compPat: 'offbeat',  bass: 'acid',      bassPat: 'acid',      drums: 'four' },
+];
+const harmonics = (h) => (x) => { let v = 0; for (let k = 0; k < h.length; k++) v += h[k] * Math.sin(2 * Math.PI * (k + 1) * x); return v; };
+// apply an instrument envelope to a gain AudioParam (after the note's attack value is set)
+function shapeEnv(param, t, vol, T) {
+  if (!T) return;
+  if (T.env === 'pluck') param.setTargetAtTime(vol * 0.002, t + 0.004, 1 / (T.dec || 5));
+  else if (T.env === 'stacc') param.setTargetAtTime(vol * 0.45, t + 0.01, 0.08);
+  else if (T.env === 'swell') { param.setValueAtTime(vol * 0.05, t); param.linearRampToValueAtTime(vol, t + 0.08); }
+}
 
 // ---- sample building helpers ----
 function mkBuf(rate, secs, fn, bits, chans = 1) {
@@ -1188,13 +1225,13 @@ function makeChan(dest, pan) {
   if (p) { p.pan.value = pan; g.connect(p); p.connect(dest); } else g.connect(dest);
   return {
     src: null, busyUntil: 0,
-    play(buf, rate, vol, t, dur, loop) {
+    play(buf, rate, vol, t, dur, loop, T) {
       if (this.src) { try { this.src.stop(t); } catch (e) {} }
       const s = a.createBufferSource(), e = a.createGain();
       s.buffer = buf; s.playbackRate.value = rate; s.loop = !!loop;
-      e.gain.setValueAtTime(vol, t);
+      e.gain.setValueAtTime(vol, t); shapeEnv(e.gain, t, vol, T);
       s.connect(e); e.connect(g); s.start(t); this.src = s; this.env = e;
-      if (dur) { e.gain.setValueAtTime(vol, t + Math.max(0.01, dur - 0.02)); e.gain.linearRampToValueAtTime(0, t + dur); s.stop(t + dur + 0.02); }
+      if (dur) { e.gain.setTargetAtTime(0, t + Math.max(0.01, dur - 0.02), 0.008); s.stop(t + dur + 0.05); }
       return s;
     },
     stop(t) { if (this.src) { try { this.src.stop(t); } catch (e) {} this.src = null; } }
@@ -1298,17 +1335,29 @@ function rigAmiga() {
   if (sm) Object.assign(S, { kick: crunch(sm.kick, 12000), snare: crunch(sm.snare, 12000), hat: crunch(sm.hat, 12000), ohat: crunch(sm.ohat, 12000, 0.3),
                               engine: crunch(sm.engine_lo, R), crash: crunch(sm.crash, R, 1.2) });
   const ENG_BASE = sm ? 45 : 64;
+  const cycCache = {}, cyc = (tb) => cycCache[tb] || (cycCache[tb] = (() => {        // 64-sample 8-bit instrument waves
+    const f = harmonics(TIMBRES[tb].h); let mx = 0; for (let i = 0; i < 64; i++) mx = Math.max(mx, Math.abs(f(i / 64)));
+    return cycleBuf(R, 64, x => f(x) / mx * 0.9, 8); })());
   const ch = [makeChan(bus, -0.8), makeChan(bus, 0.8), makeChan(bus, 0.8), makeChan(bus, -0.8)];
   let engOn = false;
   const rate = (f) => f / base;
   return {
-    music(ev, t) {
-      if (ev.bass) ch[0].play(S.bass, rate(midi(ev.bass)), 0.5, t, STEP_T * 0.95, true);
-      if (ev.lead) ch[1].play(S.lead, rate(midi(ev.lead.n)), 0.32, t, STEP_T * ev.lead.len * 0.95, true);
-      else if (ev.arp) ch[1].play(S.lead, rate(midi(ev.arp)), 0.22, t, STEP_T * 0.9, true);   // classic tracker arpeggio when the lead rests
-      if (ev.kick) ch[2].play(S.kick, 1, 0.8, t);
-      else if (ev.snare) ch[2].play(S.snare, 1, 0.6, t);
-      else if (ev.hat) ch[2].play(ev.ohat && S.ohat ? S.ohat : S.hat, 1, 0.35, t);
+    music(ev, t) {                                         // 3 music channels: bass / melody / drums
+      const v = ev.vel, cr = (n) => midi(n) / (R / 64);
+      if (ev.bass) ch[0].play(cyc(ev.bass.tb), cr(ev.bass.n), 0.5 * v, t, ev.bass.len, true, TIMBRES[ev.bass.tb]);
+      const mel = ev.lead || ev.counter;
+      if (mel) ch[1].play(cyc(mel.tb), cr(mel.n), 0.32 * v, t, mel.len * 0.95, true, TIMBRES[mel.tb]);
+      else if (ev.arp) ch[1].play(cyc(ev.arp.tb), cr(ev.arp.n), 0.2 * v, t, ev.stepT * 0.9, true, TIMBRES[ev.arp.tb]);
+      else if (ev.comp) {                                    // chords on one channel: the tracker "0xy" arpeggio effect
+        const s2 = ch[1].play(cyc(ev.comp.tb), cr(ev.comp.notes[0]), 0.22 * v, t, ev.comp.len, true, TIMBRES[ev.comp.tb]);
+        for (let k = 1, tt = t + 0.02; tt < t + ev.comp.len; k++, tt += 0.02) s2.playbackRate.setValueAtTime(cr(ev.comp.notes[k % 3]), tt);
+      }
+      if (ev.kick) ch[2].play(S.kick, 1, 0.8 * v, t);
+      else if (ev.snare) ch[2].play(S.snare, 1, 0.6 * v, t);
+      else if (ev.clap) ch[2].play(S.snare, 1.25, 0.55 * v, t);
+      else if (ev.tom) ch[2].play(S.kick, 2.3, 0.45 * v, t);
+      else if (ev.hat) ch[2].play(ev.ohat && S.ohat ? S.ohat : S.hat, 1, 0.35 * v, t);
+      if (ev.cymbal && !ev.kick && S.ohat) ch[2].play(S.ohat, 0.8, 0.5, t);
     },
     engine(p, live, thr) {
       const c = ch[3], t = a.currentTime;
@@ -1331,6 +1380,7 @@ function rigAdlib() {
   const fm = (t, f, dur, o) => {
     const c = a.createOscillator(), m = a.createOscillator(), mg = a.createGain(), g = a.createGain();
     c.frequency.value = f; m.frequency.value = f * o.ratio;
+    if (o.vib) { const l = a.createOscillator(), lg = a.createGain(); l.frequency.value = 5.5; lg.gain.value = f * o.vib; l.connect(lg); lg.connect(c.frequency); l.start(t); l.stop(t + dur + o.rel + 0.05); }
     mg.gain.setValueAtTime(f * o.index, t); mg.gain.exponentialRampToValueAtTime(Math.max(1, f * o.index * o.idxEnd), t + Math.max(0.05, dur));
     g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(o.vol, t + o.att);
     g.gain.setTargetAtTime(o.vol * o.sus, t + o.att, o.dec);
@@ -1345,12 +1395,14 @@ function rigAdlib() {
     bell:  { ratio: 3.5, index: 1.8, idxEnd: 0.1, att: 0.002, dec: 0.25, sus: 0.0, rel: 0.2, vol: 0.12 },
   };
   const noiseBuf = mkBuf(a.sampleRate, 0.4, () => rnd());
-  const drum = (t, type) => {   // OPL rhythm-mode style
+  const drum = (t, type, v = 1) => {   // OPL rhythm-mode style
+    if (type === 'tom') { const o = a.createOscillator(), g = a.createGain(); o.frequency.setValueAtTime(330, t); o.frequency.exponentialRampToValueAtTime(180, t + 0.1);
+      g.gain.setValueAtTime(0.3 * v, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.14); o.connect(g); g.connect(bus); o.start(t); o.stop(t + 0.16); return; }
     if (type === 'kick') { const o = a.createOscillator(), g = a.createGain(); o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.12);
       g.gain.setValueAtTime(0.6, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.2); o.connect(g); g.connect(bus); o.start(t); o.stop(t + 0.22); return; }
     const s = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain(); s.buffer = noiseBuf;
     f.type = type === 'snare' ? 'bandpass' : 'highpass'; f.frequency.value = type === 'snare' ? 1800 : 7000;
-    const d = type === 'snare' ? 0.16 : type === 'ohat' ? 0.18 : 0.04;
+    const d = type === 'snare' ? 0.16 : type === 'ohat' ? 0.18 : type === 'cymbal' ? 0.38 : 0.04;
     g.gain.setValueAtTime(type === 'snare' ? 0.45 : 0.16, t); g.gain.exponentialRampToValueAtTime(0.001, t + d);
     s.connect(f); f.connect(g); g.connect(bus); s.start(t); s.stop(t + d + 0.02);
     if (type === 'snare') fm(t, 180, 0.05, INS.bell);
@@ -1365,12 +1417,15 @@ function rigAdlib() {
   const eng = makeChan(sbBus, 0), fx = makeChan(sbBus, 0);
   let engOn = false;
   return {
-    music(ev, t) {
-      if (ev.bass) fm(t, midi(ev.bass), STEP_T * 0.85, INS.bass);
-      if (ev.lead) fm(t, midi(ev.lead.n), STEP_T * ev.lead.len * 0.9, INS.brass);
-      else if (ev.arp && ev.section === 'C') fm(t, midi(ev.arp + 12), STEP_T * 0.8, INS.bell);
-      if (ev.pad) ev.pad.forEach(n => fm(t, midi(n + 12), STEP_T * 15, INS.pad));
-      if (ev.kick) drum(t, 'kick'); if (ev.snare) drum(t, 'snare'); if (ev.hat) drum(t, ev.ohat ? 'ohat' : 'hat');
+    music(ev, t) {                                         // up to 9 FM voices + rhythm mode
+      const v = ev.vel, P = (tb, vol) => { const f = TIMBRES[tb].fm; return { ratio: f[0], index: f[1], idxEnd: f[2], att: f[3], dec: f[4], sus: f[5], rel: f[6], vol: f[7] * vol, vib: TIMBRES[tb].vib }; };
+      if (ev.bass) fm(t, midi(ev.bass.n), ev.bass.len * 0.9, P(ev.bass.tb, v));
+      if (ev.lead) fm(t, midi(ev.lead.n), ev.lead.len * 0.9, P(ev.lead.tb, v));
+      if (ev.counter) fm(t, midi(ev.counter.n), ev.counter.len * 0.9, P(ev.counter.tb, v * 0.8));
+      if (ev.arp) fm(t, midi(ev.arp.n), ev.stepT * 0.8, P(ev.arp.tb, v * 0.7));
+      if (ev.comp) ev.comp.notes.forEach(n => fm(t, midi(n), ev.comp.len, P(ev.comp.tb, v * 0.5)));
+      if (ev.kick) drum(t, 'kick', v); if (ev.snare) drum(t, 'snare', v); if (ev.clap) drum(t, 'snare', v * 0.8);
+      if (ev.tom) drum(t, 'tom', v); if (ev.hat) drum(t, ev.ohat ? 'ohat' : 'hat', v); if (ev.cymbal) drum(t, 'cymbal', v);
     },
     engine(p, live, thr) {
       const t = a.currentTime;
@@ -1428,17 +1483,30 @@ function rigGUS(hd) {
     const v1 = voice(S.lead, rate(midi(n)) * 1.004, 0.13, t, dur, -0.25, true), v2 = voice(S.lead, rate(midi(n)) * 0.996, 0.13, t, dur, 0.25, true);
     v1.g.connect(dIn); if (hd) voice(S.lead, rate(midi(n - 12)), 0.06, t, dur, 0, true);
   };
+  const cycCache = {}, cyc = (tb) => cycCache[tb] || (cycCache[tb] = (() => {
+    const f = harmonics(TIMBRES[tb].h); let mx = 0; for (let i = 0; i < 256; i++) mx = Math.max(mx, Math.abs(f(i / 256)));
+    return cycleBuf(R, N, x => f(x) / mx * 0.8); })());
+  const note = (tb, n, t, dur, vol, pan) => {             // an instrument note: envelope, vibrato, musette detune
+    const T = TIMBRES[tb], r = rate(midi(n)), att = T.env === 'pad' ? 0.3 : T.env === 'swell' ? 0.08 : 0.004;
+    const v1 = voice(cyc(tb), r, vol, t, dur, pan, true, att); shapeEnv(v1.g.gain, t + att, vol, T.env === 'swell' ? null : T);
+    if (T.vib) { const l = a.createOscillator(), lg = a.createGain(); l.frequency.value = 5.5; lg.gain.value = r * T.vib; l.connect(lg); lg.connect(v1.s.playbackRate); l.start(t); l.stop(t + dur + 0.5); }
+    if (T.mus) voice(cyc(tb), r * 1.007, vol * 0.7, t, dur, -pan || 0.3, true, att);   // accordion: two reeds, slightly apart
+    return v1;
+  };
   let eng = null, sq = null;
   return {
-    music(ev, t) {
-      if (ev.bass) { voice(S.bass, rate(midi(ev.bass)), 0.32, t, STEP_T * 0.8, 0, true); if (hd) voice(S.bass, rate(midi(ev.bass - 12)), 0.18, t, STEP_T * 0.8, 0, true); }
-      if (ev.lead) lead(ev.lead.n, t, STEP_T * ev.lead.len * 0.92);
-      if (ev.arp) voice(S.lead, rate(midi(ev.arp + 12)), ev.lead ? 0.05 : 0.09, t, STEP_T * 0.7, (ev.step % 2 ? 0.6 : -0.6), true);
-      if (ev.counter) voice(S.pad, rate(midi(ev.counter.n)), 0.09, t, STEP_T * ev.counter.len, 0.4, true, 0.03);
-      if (ev.pad) ev.pad.forEach((n, i) => voice(S.pad, rate(midi(n + 12)), 0.05, t, STEP_T * 15.5, i - 1, true, 0.3));
-      if (ev.kick) voice(S.kick, 1, hd ? 0.95 : 0.8, t, 0, 0);
-      if (ev.snare) voice(S.snare, 1, 0.55, t, 0, 0.1);
-      if (ev.hat) voice(ev.ohat ? S.ohat : S.hat, 1, 0.3, t, 0, 0.35);
+    music(ev, t) {                                         // many 16-bit voices, panned across the stereo field
+      const v = ev.vel;
+      if (ev.bass) { note(ev.bass.tb, ev.bass.n, t, ev.bass.len * 0.9, 0.3 * v, 0); if (hd && ev.lvl >= 2) note(ev.bass.tb, ev.bass.n - 12, t, ev.bass.len * 0.9, 0.16 * v, 0); }
+      if (ev.lead) { const n1 = note(ev.lead.tb, ev.lead.n, t, ev.lead.len * 0.92, 0.15 * v, -0.2); n1.g.connect(dIn); if (TIMBRES[ev.lead.tb].env === 'sus' && !TIMBRES[ev.lead.tb].mus) note(ev.lead.tb, ev.lead.n + 0.07, t, ev.lead.len * 0.92, 0.1 * v, 0.25); }
+      if (ev.counter) note(ev.counter.tb, ev.counter.n, t, ev.counter.len * 0.95, 0.1 * v, 0.45);
+      if (ev.arp) note(ev.arp.tb, ev.arp.n, t, ev.stepT * 0.8, (ev.lead ? 0.05 : 0.08) * v, ev.i % 2 ? 0.6 : -0.6);
+      if (ev.comp) ev.comp.notes.forEach((n, k) => note(ev.comp.tb, n, t, ev.comp.len, 0.05 * v, k - 1));
+      if (ev.kick) voice(S.kick, 1, (hd ? 0.95 : 0.8) * v, t, 0, 0);
+      if (ev.snare) { const sn = voice(S.snare, 1, 0.55 * v, t, 0, 0.1); if (ev.big) sn.g.connect(audio.reverbIn); }
+      if (ev.clap) { voice(S.snare, 1.2, 0.4 * v, t, 0, -0.15); voice(S.snare, 1.25, 0.35 * v, t + 0.012, 0, 0.15); }
+      if (ev.tom) voice(S.kick, 2.1, 0.45 * v, t, 0, ev.i % 2 ? 0.3 : -0.3);
+      if (ev.hat) voice(ev.ohat ? S.ohat : S.hat, 1, 0.3 * v, t, 0, 0.35);
       if (ev.cymbal) voice(S.cymbal, 1, 0.5, t, 0, -0.3);
     },
     engine(p, live, thr, steer) {
@@ -1527,32 +1595,79 @@ function rigHD() {
 }
 
 // ---------------------------------------------------------------- sequencer
-function songEvents(stepIndex) {
-  const sIdx = Math.floor(stepIndex / 64) % ORDER.length, secName = ORDER[sIdx], sec = SECTIONS[secName];
-  const inSec = stepIndex % 64, bar = Math.floor(inSec / 16), i = inSec % 16, [root, maj] = sec.chords[bar];
-  const ch = chordNotes(root, maj), ev = { section: secName, step: i };
-  ev.bass = root + BASS[i] - 12 + (secName === 'C' && i % 4 ? 0 : 0);
-  if (secName === 'C' && i % 2) ev.bass = 0;
-  const ln = sec.lead[bar].find(n => n[0] === i);
-  if (ln) ev.lead = { n: ln[1], len: ln[2] };
-  if (secName === 'B' && ln) ev.counter = { n: ln[1] - (maj ? 4 : 3) - 12, len: ln[2] };   // harmony a third below (SVGA+)
-  ev.arp = ch[i % 3] + 12 * (1 + (Math.floor(i / 3) % 2));
-  if (i === 0) ev.pad = ch;
-  ev.kick = sec.kick.includes(i);
-  ev.snare = secName !== 'C' && (i === 4 || i === 12);
-  ev.hat = i % 2 === 0 || (secName === 'B' && i % 2 === 1 && i > 12);
-  ev.ohat = i === 14;
-  ev.cymbal = inSec === 0 && sIdx !== 0;
+// ---------------------------------------------------------------- the conductor (iMUSE-style)
+// Vertical layering: an intensity level (0..3) from your speed adds/removes parts — changed only at bar lines.
+// Horizontal re-sequencing: a stage change queues a transition; the band plays a fill to the next bar line,
+// then enters the new stage's arrangement at the top of a phrase. Tempo and punch follow your speed.
+const cond = { step: 0, style: 0, pending: -1, fill: false, lvl: 0, enter: false, ended: false };
+function resetConductor() { Object.assign(cond, { step: 0, style: curStage, pending: -1, fill: false, lvl: 0, enter: true, ended: false }); }
+function snapTo(n, pcs) {
+  let best = n, bd = 99;
+  for (let d = -3; d <= 3; d++) { const m = n + d; if (pcs.includes(((m % 12) + 12) % 12) && Math.abs(d) < bd) { bd = Math.abs(d); best = m; } }
+  return best;
+}
+function conductorStep() {
+  const C = cond, p = speed / MAX_SPEED, thr = Math.max(0, input.throttle);
+  if (C.step % 16 === 0) {                                   // bar line: the only place the music may change
+    const raw = p < 0.2 ? 0 : p < 0.5 ? 1 : p < 0.78 ? 2 : 3;
+    if (raw > C.lvl) C.lvl = raw; else if (raw < C.lvl) C.lvl--;          // build fast, wind down one layer per bar
+    if (C.fill) { C.style = C.pending; C.pending = -1; C.fill = false; C.step = 0; C.enter = true; }
+    else if (C.pending >= 0) C.fill = true;                  // this bar becomes the transition fill
+  }
+  const st = STYLES[C.style], i = C.step % 16, lvl = C.lvl;
+  const sIdx = Math.floor(C.step / 64) % ORDER.length, sec = ORDER[sIdx], bar = Math.floor((C.step % 64) / 16);
+  const [root, maj] = (st.prog || BASE_PROG)[sec][bar], ch = chordNotes(root, maj);
+  const tempo = st.tempo * (0.9 + 0.16 * p), stepT = 60 / tempo / 4;
+  const ev = { stepT, lvl, i, vel: 0.78 + 0.07 * lvl + 0.08 * thr, style: st.id };
+  // ---- bass
+  const B = (n, len) => { ev.bass = { n, len: stepT * len, tb: st.bass }; };
+  if (st.bassPat === 'drive') { if (lvl >= 1 || i % 2 === 0) B(root - 12 + (lvl ? BASS[i] : 0), 0.9); }
+  else if (st.bassPat === 'acid') { if (lvl >= 1 || i % 2 === 0) B(root - 12 + ACID[i], 0.8); }
+  else if (st.bassPat === 'rootfifth') { const m = { 0: 0, 8: 7 }; if (lvl >= 2) Object.assign(m, { 6: 12, 14: 7 }); if (i in m) B(root - 12 + m[i], 3); }
+  else if (st.bassPat === 'oompah') { if (i === 0) B(root - 12, 3); else if (i === 8) B(root - 17, 3); else if (lvl >= 3 && (i === 6 || i === 14)) B(root - 12 + 4, 1.5); }
+  // ---- lead (re-harmonised onto this style's chords)
+  const ln = lvl >= 1 && LEAD[sec][bar].find(n => n[0] === i);
+  const pcs = SCALES[st.scale], chordPcs = ch.map(n => n % 12);
+  if (ln) {
+    let n = ln[1];
+    if (st.prog) n = snapTo(n, i % 4 === 0 ? chordPcs : pcs);
+    ev.lead = { n, len: stepT * ln[2], tb: st.lead };
+    if (lvl >= 3 || (lvl >= 2 && sec === 'B')) ev.counter = { n: snapTo(n - (st.id === 'polka' ? 4 : 15), pcs), len: stepT * ln[2], tb: st.counter };
+  } else if (lvl >= 3 && i === 0 && !LEAD[sec][bar].length) ev.counter = { n: ch[1] + 24, len: stepT * 14, tb: st.counter };
+  // ---- comping
+  const comp = (len, oct = 12) => { ev.comp = { notes: ch.map(n => n + oct), len: stepT * len, tb: st.comp }; };
+  if (st.compPat === 'arp') { if (lvl >= 3 || (lvl >= 2 && i % 2 === 0)) ev.arp = { n: ch[i % 3] + 24 + 12 * (Math.floor(i / 3) % 2), tb: st.comp }; else if (lvl < 2 && i === 0) ev.comp = { notes: ch.map(n => n + 12), len: stepT * 15.5, tb: 'pad' }; }
+  else if (st.compPat === 'strum') { if (i === 0 || i === 6 || (lvl >= 2 && i === 10)) comp(2.5); }
+  else if (st.compPat === 'oompah') { if (i === 4 || i === 12 || (lvl >= 3 && (i === 2 || i === 10))) comp(1.4); }
+  else if (st.compPat === 'pad') { if (i === 0) comp(15.5); if (lvl >= 2 && i % 2 === 0) ev.arp = { n: ch[(i / 2) % 3] + 24, tb: 'bright' }; }
+  else if (st.compPat === 'offbeat') { if ((lvl >= 1 && i % 4 === 2) || (lvl === 0 && i === 0)) comp(0.8); }
+  // ---- drums
+  const d = st.drums, has = (...s) => s.includes(i);
+  if (lvl >= 1 || d === 'four' && lvl >= 0) {
+    if (d === 'rock') { ev.kick = has(0, 8) || (lvl >= 2 && has(10)); ev.snare = has(4, 12); ev.hat = lvl >= 3 ? true : i % 2 === 0; ev.ohat = lvl >= 2 && i === 14; }
+    else if (d === 'gallop') { ev.kick = has(0, 8); ev.tom = has(0, 3, 4, 7, 8, 11, 12, 15); ev.snare = lvl >= 2 && has(12); ev.hat = lvl >= 3 && i % 2 === 0; }
+    else if (d === 'oompah') { ev.kick = has(0, 8); ev.snare = has(4, 12); ev.hat = lvl >= 2 && i % 4 === 2; }
+    else if (d === 'gated') { ev.kick = has(0, 8) || (lvl >= 2 && has(7)); ev.snare = has(4, 12); ev.big = ev.snare; ev.hat = lvl >= 3 || (lvl >= 2 && i % 2 === 0); }
+    else if (d === 'four') { ev.kick = lvl === 0 ? has(0, 8) : i % 4 === 0; ev.clap = lvl >= 2 && has(4, 12); ev.ohat = lvl >= 1 && i % 4 === 2; ev.hat = (lvl >= 3 && i % 2 === 1) || ev.ohat; }
+  } else if (i === 0 || i === 8) ev.hat = true;            // cruising: just a tick of the hi-hat
+  if (C.fill) { ev.kick = has(0); ev.snare = i >= 8 || i === 4; ev.tom = i >= 12; ev.hat = i < 8 && i % 2 === 0; ev.vel *= 0.9 + i / 40; }   // transition fill
+  if (C.enter && i === 0) { ev.cymbal = true; ev.kick = true; C.enter = false; }
+  else if (i === 0 && sIdx !== 0 && C.step % 64 === 0 && lvl >= 2) ev.cymbal = true;
   return ev;
 }
 function musicTick() {
   if (!audio.ctx || !audio.rig) return;
-  const a = audio.ctx;
-  const playing = (state === 'race' || state === 'countdown') && settings.sound;
-  if (audio.rig.stream) audio.rig.stream(playing && state === 'race');
+  const a = audio.ctx, playing = state === 'race' && settings.sound;
+  if (audio.rig.stream) audio.rig.stream(playing);
+  if (state === 'race' && curStage !== cond.style && cond.pending !== curStage && !cond.fill) cond.pending = curStage;   // queue the stage's cue
+  if (state === 'over' && !cond.ended && settings.sound) {   // ending stinger: final chord in the current style
+    cond.ended = true; const st = STYLES[cond.style];
+    audio.rig.music({ stepT: 0.15, lvl: 3, i: 0, vel: 1, style: st.id, kick: true, cymbal: true,
+      bass: { n: 33, len: 2.4, tb: st.bass }, comp: { notes: chordNotes(57, st.scale === 'major'), len: 2.4, tb: st.comp === 'marimba' ? 'pad' : st.comp } }, a.currentTime + 0.05);
+  }
   while (audio.next < a.currentTime + 0.12) {
-    if (playing && state === 'race') audio.rig.music(songEvents(audio.step), audio.next);
-    audio.next += STEP_T; if (playing && state === 'race') audio.step++;
+    if (playing) { const ev = conductorStep(); audio.rig.music(ev, audio.next); audio.next += ev.stepT; cond.step++; }
+    else { audio.next = a.currentTime + 0.13; break; }
   }
 }
 function sfxCrash() { if (audio.rig) audio.rig.crash(); }
@@ -2849,6 +2964,7 @@ async function startGame() {
   if (qe > 1 && qe <= N_ERAS) lap = qe - 1;
   setEra(Math.min(lap, N_ERAS - 1)); announceEra();
   resetCars();
+  resetConductor();
   showPanel(null); setHUD(true);
   $('rotate').style.display = 'none';
   beginCountdown();
