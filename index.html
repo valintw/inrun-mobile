@@ -1222,8 +1222,7 @@ function initAudio() {
   audio.reverb.buffer = mkBuf(a.sampleRate, 2.2, (t, i, c) => rnd() * Math.pow(1 - t / 2.2, 3.2), 0, 2);
   audio.reverbIn = a.createGain(); audio.reverbIn.gain.value = 0; audio.reverbIn.connect(audio.reverb); audio.reverb.connect(audio.master);
   // HD soundtrack: an MP3 in assets/music (optional — falls back to the synthesised score)
-  const el = new Audio(); el.loop = true; el.preload = 'auto'; el.crossOrigin = 'anonymous';
-  el.src = 'assets/music/hd.mp3';
+  const el = new Audio(); el.loop = true; el.preload = 'none'; el.crossOrigin = 'anonymous';   // src is set once you reach SVGA
   audio.mp3 = { el, ok: false, failed: false };
   el.addEventListener('canplaythrough', () => { audio.mp3.ok = true; }, { once: true });
   el.addEventListener('error', () => { audio.mp3.failed = true; });
@@ -1239,6 +1238,8 @@ function setAudioEra(e) {
   const a = audio.ctx; if (!a) return;
   if (audio.rig && audio.rig.teardown) audio.rig.teardown();
   audio.era = e;
+  // start fetching the 5 MB HD soundtrack a whole lap early (in the SVGA era), not at page load
+  if (e >= 3 && audio.mp3 && !audio.mp3.el.getAttribute('src')) { audio.mp3.el.preload = 'auto'; audio.mp3.el.src = 'assets/music/hd.mp3'; audio.mp3.el.load(); }
   audio.reverbIn.gain.value = e >= 3 ? (e === 4 ? 0.35 : 0.25) : 0;
   audio.rig = [rigSpeaker, rigAmiga, rigAdlib, rigGUS, rigHD][e]();
 }
