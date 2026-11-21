@@ -1145,7 +1145,7 @@ function readInput(dt) {
      1989 Amiga : 4-channel "Paula" — 3-channel tracker music + 1 SFX channel
      1992 VGA   : AdLib-style FM synthesis music + Sound Blaster 8-bit digital SFX
      1996 SVGA  : Gravis-Ultrasound-style multi-channel 16-bit stereo mod, polyphonic SFX
-     Today      : streamed MP3 soundtrack (assets/music/hd.mp3) + modern layered SFX
+     Today      : streamed MP3 playlist (assets/music/playlist.json, shuffled) + modern layered SFX
    ====================================================================== */
 const audio = { ctx: null, era: -1 };
 const midi = n => 440 * Math.pow(2, (n - 69) / 12);
@@ -1239,12 +1239,7 @@ function initAudio() {
   audio.reverb = a.createConvolver();
   audio.reverb.buffer = mkBuf(a.sampleRate, 2.2, (t, i, c) => rnd() * Math.pow(1 - t / 2.2, 3.2), 0, 2);
   audio.reverbIn = a.createGain(); audio.reverbIn.gain.value = 0; audio.reverbIn.connect(audio.reverb); audio.reverb.connect(audio.master);
-  // HD soundtrack: an MP3 in assets/music (optional — falls back to the synthesised score)
-  const el = new Audio(); el.loop = true; el.preload = 'none'; el.crossOrigin = 'anonymous';   // src is set once you reach SVGA
-  audio.mp3 = { el, ok: false, failed: false };
-  el.addEventListener('canplaythrough', () => { audio.mp3.ok = true; }, { once: true });
-  el.addEventListener('error', () => { audio.mp3.failed = true; });
-  try { const src = a.createMediaElementSource(el), g = a.createGain(); g.gain.value = 0.55; src.connect(g); g.connect(audio.master); } catch (e) { audio.mp3.failed = true; }
+  audio.mp3 = makeJukebox(a);
   setInterval(musicTick, 25);
   setAudioEra(era);
   loadSamples();
@@ -1257,7 +1252,7 @@ function setAudioEra(e) {
   if (audio.rig && audio.rig.teardown) audio.rig.teardown();
   audio.era = e;
   // start fetching the 5 MB HD soundtrack a whole lap early (in the SVGA era), not at page load
-  if (e >= 3 && audio.mp3 && !audio.mp3.el.getAttribute('src')) { audio.mp3.el.preload = 'auto'; audio.mp3.el.src = 'assets/music/hd.mp3'; audio.mp3.el.load(); }
+  if (e >= 3 && audio.mp3) audio.mp3.prefetch();
   audio.reverbIn.gain.value = e >= 3 ? (e === 4 ? 0.35 : 0.25) : 0;
   audio.rig = [rigSpeaker, rigAmiga, rigAdlib, rigGUS, rigHD][e]();
 }
@@ -1464,18 +1459,70 @@ function rigGUS(hd) {
   };
 }
 
-// Today: the soundtrack is a streamed MP3; SFX are the multi-voice sampled set with more reverb.
+// HD soundtrack jukebox: a shuffled playlist from assets/music/playlist.json, played through two
+// alternating <audio> players. When the current track is half played, the other player starts loading
+// the next (random, never the same track twice running); when the track ends, the next one takes over.
+function makeJukebox(a) {
+  const J = { list: null, loading: null, players: [], cur: 0, last: -1, failed: false, ready: [false, false], nextPrimed: false, wantPlay: false };
+  for (let i = 0; i < 2; i++) {
+    const el = new Audio(); el.preload = 'none'; el.crossOrigin = 'anonymous';
+    try { const src = a.createMediaElementSource(el), g = a.createGain(); g.gain.value = 0.55; src.connect(g); g.connect(audio.master); } catch (e) { J.failed = true; }
+    el.addEventListener('canplay', () => { J.ready[i] = true; });
+    el.addEventListener('error', () => { J.ready[i] = false; if (el.dataset.idx) J.bad.add(+el.dataset.idx); if (i === J.cur) J.skip(); });
+    el.addEventListener('timeupdate', () => {
+      if (i === J.cur && !J.nextPrimed && el.duration && el.currentTime > el.duration / 2) { J.nextPrimed = true; J.prime(1 - i); }
+    });
+    el.addEventListener('ended', () => { if (i === J.cur) J.skip(); });
+    el.addEventListener('playing', () => {
+      if (i === J.cur && el.dataset.announced !== el.dataset.idx) { el.dataset.announced = el.dataset.idx; toast('\u266A NOW PLAYING: ' + (el.dataset.title || '').toUpperCase()); }
+    });
+    J.players.push(el);
+  }
+  J.bad = new Set();
+  J.load = () => J.loading || (J.loading = fetch('assets/music/playlist.json').then(r => r.ok ? r.json() : Promise.reject())
+    .then(d => { J.list = (d.tracks || []).filter(t => t && t.file); })
+    .catch(() => { J.list = [{ file: 'loading-bar-blues.mp3', title: 'Loading Bar Blues' }]; })
+    .then(() => { if (!J.list.length) J.failed = true; }));
+  J.pick = () => {
+    const ok = J.list.map((t, i) => i).filter(i => !J.bad.has(i));
+    if (!ok.length) { J.failed = true; return -1; }
+    const pool = ok.length > 1 ? ok.filter(i => i !== J.last) : ok;
+    return (J.last = pool[Math.floor(Math.random() * pool.length)]);
+  };
+  J.prime = (slot) => {                       // load a random track into a player (the "next in memory")
+    const idx = J.pick(); if (idx < 0) return;
+    const el = J.players[slot], t = J.list[idx];
+    J.ready[slot] = false; el.dataset.idx = idx; el.dataset.title = t.title || t.file;
+    el.preload = 'auto'; el.src = 'assets/music/' + t.file; el.load();
+  };
+  J.prefetch = () => { J.load().then(() => { if (!J.failed && !J.players[J.cur].getAttribute('src')) J.prime(J.cur); }); };
+  J.skip = () => {                            // current track finished (or failed): hand over to the other player
+    const old = J.players[J.cur]; old.pause();
+    J.cur = 1 - J.cur; J.nextPrimed = false;
+    if (!J.players[J.cur].getAttribute('src') || J.players[J.cur].ended) J.prime(J.cur);
+    else J.players[J.cur].currentTime = 0;
+    if (J.wantPlay) J.players[J.cur].play().catch(() => {});
+  };
+  J.ok = () => !J.failed && J.ready[J.cur];
+  J.stream = (playing) => {
+    J.wantPlay = playing;
+    const el = J.players[J.cur];
+    if (playing && J.list === null) J.prefetch();
+    if (!J.ok()) return;
+    if (playing && el.paused) el.play().catch(() => {});
+    if (!playing && !el.paused) el.pause();
+  };
+  J.stop = () => { J.wantPlay = false; J.players.forEach(el => { if (!el.paused) el.pause(); }); };
+  return J;
+}
+
+// Today: the soundtrack is the streamed MP3 playlist; SFX are the multi-voice sampled set with more reverb.
 function rigHD() {
   const sfx = rigGUS(true), m = audio.mp3;
-  const useMp3 = () => m && m.ok && !m.failed;
   return Object.assign({}, sfx, {
-    music(ev, t) { if (!useMp3()) sfx.music(ev, t); },             // synthesised score until an MP3 is supplied
-    stream(playing) {
-      if (!useMp3()) return;
-      if (playing && m.el.paused) m.el.play().catch(() => {});
-      if (!playing && !m.el.paused) m.el.pause();
-    },
-    teardown() { if (m && !m.el.paused) m.el.pause(); sfx.teardown(); }
+    music(ev, t) { if (!(m && m.ok())) sfx.music(ev, t); },        // synthesised score until a track is ready
+    stream(playing) { if (m) m.stream(playing); },
+    teardown() { if (m) m.stop(); sfx.teardown(); }
   });
 }
 

@@ -26,6 +26,8 @@ No endorsement by the Khronos Group or Darmstadt Graphics Group is implied.
 - `crash.wav`: a mix of three VCSL (CC0) recordings — a hammer-struck brake drum, clash cymbals and a bass drum.
 - `engine_lo.wav`, `engine_hi.wav`: original physically-modelled 4-cylinder engine loops made for InRun (no third-party audio).
 
-## assets/music/hd.mp3 — HD-era soundtrack
+## assets/music/ — HD-era soundtrack
 
-**"Loading Bar Blues"** — supplied by the project owner for InRun's final ("Today") era.
+Supplied by the project owner for InRun's final ("Today") era:
+- **"Loading Bar Blues"** (`loading-bar-blues.mp3`)
+- **"Chip on Your Shoulder"** (`chip-on-your-shoulder.mp3`)
