@@ -17,3 +17,11 @@ Based on **"Car Concept"** from the Khronos glTF Sample Assets
 - Mesh simplified (~213k → ~92k triangles), textures resized to ≤1024 px and converted to WebP, meshopt compression applied.
 
 No endorsement by the Khronos Group or Darmstadt Graphics Group is implied.
+
+## assets/sfx/ — sound samples
+
+- `kick.wav`, `snare.wav`, `hat.wav`, `ohat.wav`, `cymbal.wav`: trimmed, compressed and resampled from the
+  **Versilian Community Sample Library (VCSL)** by Versilian Studios LLC — <https://github.com/sgossner/VCSL> —
+  released under **CC0 1.0** (public domain). The kick is a shortened orchestral bass-drum hit.
+- `crash.wav`: a mix of three VCSL (CC0) recordings — a hammer-struck brake drum, clash cymbals and a bass drum.
+- `engine_lo.wav`, `engine_hi.wav`: original physically-modelled 4-cylinder engine loops made for InRun (no third-party audio).

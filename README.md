@@ -21,9 +21,9 @@ The audio hardware evolves with the graphics (all synthesised live in the browse
 | Era | Sound |
 |---|---|
 | 1987 · EGA | **PC speaker** — one square-wave beeper: engine buzz, crash rattle and beeps, no music |
-| 1989 · Amiga | **4-channel Paula** — 3-channel tracker tune with 8-bit samples (hard-panned L/R), 1 channel for the engine; crashes steal it |
+| 1989 · Amiga | **4-channel Paula** — 3-channel tracker tune with 8-bit samples incl. recorded drums (hard-panned L/R), 1 channel for the sampled engine; crashes steal it |
 | 1992 · VGA | **AdLib FM** — 2-operator FM bass, brass lead, pads and rhythm-mode drums; **Sound Blaster** 8-bit digitised engine and crashes |
-| 1996 · SVGA | **Gravis Ultrasound-style mod** — many 16-bit stereo channels, harmonies, echo and reverb; overlapping SFX, 5-speed engine, tyre squeal |
+| 1996 · SVGA | **Gravis Ultrasound-style mod** — many 16-bit stereo channels with recorded drums, harmonies, echo and reverb; overlapping sampled SFX, 5-speed engine crossfading two samples, tyre squeal |
 | Today · HD | **Streamed MP3** from `assets/music/hd.mp3` (see `assets/music/README.md`); falls back to a fuller synthesised score if absent |
 
 ## Controls
