@@ -92,3 +92,9 @@ The HD-era player car is based on **"Car Concept"** © 2024 Darmstadt Graphics G
 from the Khronos glTF Sample Assets, licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), modified.
 See [`assets/CREDITS.md`](assets/CREDITS.md) for details of the changes. Keep `assets/` next to `index.html` when hosting;
 if the model can't be loaded the game uses its built-in procedural car instead.
+
+## ToonCam (`cartoon/index.html`)
+A separate single-file web app: take a photo with the phone camera (or pick one from the gallery) and it is redrawn as a
+cartoon illustration entirely in the browser — edge-preserving smoothing, k-means colour flattening in Lab space and
+difference-of-Gaussians ink lines. Style presets (Toon, Comic, Pop Art, Pastel, Anime, Ink Only), sliders, comic
+halftone dots, a before/after compare slider and Save/Share. Camera access needs HTTPS or localhost.

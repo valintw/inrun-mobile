@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14121c">
+<title>Toon Camera</title>
+<style>
+  :root {
+    --bg: #14121c;
+    --panel: #1f1c2b;
+    --panel-2: #2a2639;
+    --text: #f4f1fa;
+    --muted: #a59fb8;
+    --accent: #ffcc33;
+    --accent-ink: #231a00;
+    --danger: #ff6b6b;
+    --radius: 16px;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
+  body { display: flex; flex-direction: column; min-height: 100dvh; }
+  header { display: flex; align-items: center; gap: 10px; padding: 12px 16px; padding-top: max(12px, env(safe-area-inset-top)); }
+  header h1 { font-size: 18px; margin: 0; letter-spacing: .3px; }
+  header h1 span { color: var(--accent); }
+  header .spacer { flex: 1; }
+  main { flex: 1; display: flex; flex-direction: column; gap: 12px; padding: 0 16px 16px; padding-bottom: max(16px, env(safe-area-inset-bottom)); max-width: 900px; width: 100%; margin: 0 auto; }
+
+  .stage { position: relative; background: #000; border-radius: var(--radius); overflow: hidden;
+    aspect-ratio: 3 / 4; width: 100%; max-height: 62dvh; margin: 0 auto; display: flex; align-items: center; justify-content: center; }
+  @media (min-aspect-ratio: 1/1) { .stage { aspect-ratio: 4 / 3; } }
+  .stage video, .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .stage video.mirror { transform: scaleX(-1); }
+  #orig { clip-path: inset(0 calc(100% - var(--split, 0%)) 0 0); }
+  .split-line { position: absolute; top: 0; bottom: 0; left: var(--split, 0%); width: 2px; background: var(--accent);
+    box-shadow: 0 0 6px rgba(0,0,0,.6); pointer-events: none; display: none; }
+  .split-line::after { content: "⇆"; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    background: var(--accent); color: var(--accent-ink); width: 30px; height: 30px; border-radius: 50%;
+    display: grid; place-items: center; font-weight: 700; font-size: 16px; }
+  .stage.comparing .split-line { display: block; }
+  #splitRange { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; margin: 0; cursor: ew-resize; display: none; }
+  .stage.comparing #splitRange { display: block; }
+
+  .msg { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 12px; text-align: center; padding: 24px; color: var(--muted); }
+  .busy { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 12px;
+    background: rgba(10, 8, 16, .55); backdrop-filter: blur(2px); font-weight: 600; }
+  .busy.on { display: flex; }
+  .spinner { width: 44px; height: 44px; border-radius: 50%; border: 4px solid rgba(255,255,255,.2); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .progress { width: 60%; height: 6px; border-radius: 3px; background: rgba(255,255,255,.15); overflow: hidden; }
+  .progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+
+  .bar { display: flex; align-items: center; justify-content: center; gap: 14px; flex-wrap: wrap; }
+  button, .btn { appearance: none; border: 0; border-radius: 999px; background: var(--panel-2); color: var(--text);
+    font: inherit; font-weight: 600; padding: 11px 18px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
+    text-decoration: none; min-height: 44px; }
+  button:active, .btn:active { transform: scale(.97); }
+  button.primary, .btn.primary { background: var(--accent); color: var(--accent-ink); }
+  button[disabled] { opacity: .45; pointer-events: none; }
+  .shutter { width: 76px; height: 76px; padding: 0; border-radius: 50%; background: #fff; border: 5px solid var(--accent);
+    box-shadow: 0 0 0 4px var(--bg) inset; justify-content: center; }
+  .icon { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .round { width: 48px; height: 48px; padding: 0; justify-content: center; }
+  input[type=file] { display: none; }
+
+  .panel { background: var(--panel); border-radius: var(--radius); padding: 14px; display: none; flex-direction: column; gap: 14px; }
+  .panel.on { display: flex; }
+  .styles { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+  .styles::-webkit-scrollbar { display: none; }
+  .styles button { flex: 0 0 auto; padding: 8px 14px; min-height: 36px; font-size: 14px; }
+  .styles button.on { background: var(--accent); color: var(--accent-ink); }
+  .sliders { display: grid; grid-template-columns: 1fr; gap: 10px 20px; }
+  @media (min-width: 560px) { .sliders { grid-template-columns: 1fr 1fr; } }
+  label.s { display: grid; grid-template-columns: 110px 1fr 34px; align-items: center; gap: 10px; font-size: 14px; color: var(--muted); }
+  label.s output { color: var(--text); text-align: right; font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .check { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; }
+  .check input { accent-color: var(--accent); width: 18px; height: 18px; }
+  .hint { color: var(--muted); font-size: 13px; text-align: center; margin: 0; }
+  .err { color: var(--danger); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Toon<span>Cam</span></h1>
+  <div class="spacer"></div>
+  <button id="uploadBtn" class="round" title="Choose a photo" aria-label="Choose a photo">
+    <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></svg>
+  </button>
+  <input id="fileInput" type="file" accept="image/*">
+</header>
+
+<main>
+  <div class="stage" id="stage">
+    <video id="video" playsinline muted autoplay></video>
+    <canvas id="result" hidden></canvas>
+    <canvas id="orig" hidden></canvas>
+    <div class="split-line"></div>
+    <input id="splitRange" type="range" min="0" max="100" value="0" aria-label="Compare with original">
+    <div class="msg" id="msg">
+      <div class="spinner"></div>
+      <div>Starting camera…</div>
+    </div>
+    <div class="busy" id="busy">
+      <div class="spinner"></div>
+      <div id="busyText">Drawing your cartoon…</div>
+      <div class="progress"><i id="progress"></i></div>
+    </div>
+  </div>
+
+  <!-- camera controls -->
+  <div class="bar" id="camBar">
+    <button id="flipBtn" class="round" title="Switch camera" aria-label="Switch camera">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M20 7h-3l-2-3H9L7 7H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1z"/><path d="M9 13a3 3 0 0 1 5.2-2"/><path d="M15 13a3 3 0 0 1-5.2 2"/><path d="M14 9v2h2M10 17v-2H8"/></svg>
+    </button>
+    <button id="shutter" class="shutter" title="Take picture" aria-label="Take picture" disabled></button>
+    <button id="timerBtn" class="round" title="3-second timer" aria-label="3-second timer">
+      <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M9 2h6"/></svg>
+    </button>
+  </div>
+
+  <!-- result controls -->
+  <div class="bar" id="resBar" hidden>
+    <button id="retakeBtn">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>Retake
+    </button>
+    <button id="compareBtn">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M12 3v18M8 7H4v10h4M16 7h4v10h-4"/></svg>Compare
+    </button>
+    <button id="saveBtn" class="primary">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Save
+    </button>
+  </div>
+
+  <div class="panel" id="panel">
+    <div class="styles" id="styles"></div>
+    <div class="sliders">
+      <label class="s">Colours <input type="range" id="colors" min="3" max="20" step="1"><output></output></label>
+      <label class="s">Smoothing <input type="range" id="smooth" min="0" max="6" step="1"><output></output></label>
+      <label class="s">Line weight <input type="range" id="lineWeight" min="0" max="4" step="1"><output></output></label>
+      <label class="s">Line detail <input type="range" id="lineDetail" min="0" max="10" step="1"><output></output></label>
+      <label class="s">Saturation <input type="range" id="saturation" min="0" max="200" step="5"><output></output></label>
+      <label class="s">Brightness <input type="range" id="brightness" min="-40" max="40" step="2"><output></output></label>
+    </div>
+    <div class="bar" style="justify-content:flex-start">
+      <label class="check"><input type="checkbox" id="halftone"> Comic halftone dots</label>
+      <label class="check"><input type="checkbox" id="hires"> High resolution</label>
+    </div>
+  </div>
+
+  <p class="hint" id="hint">Point the camera at something and tap the shutter. You can also pick a photo with the gallery button.</p>
+</main>
+
+<!-- ================= Image-processing worker ================= -->
+<script id="workerSrc" type="text/js-worker">
+'use strict';
+
+// Separable Gaussian blur on a single Float32 channel.
+function gaussKernel(sigma) {
+  const r = Math.max(1, Math.ceil(sigma * 3));
+  const k = new Float32Array(r * 2 + 1);
+  let sum = 0;
+  for (let i = -r; i <= r; i++) { const v = Math.exp(-(i * i) / (2 * sigma * sigma)); k[i + r] = v; sum += v; }
+  for (let i = 0; i < k.length; i++) k[i] /= sum;
+  return { k, r };
+}
+function blur(src, w, h, sigma) {
+  const { k, r } = gaussKernel(sigma);
+  const tmp = new Float32Array(w * h), out = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w; x++) {
+      let s = 0;
+      for (let i = -r; i <= r; i++) {
+        let xx = x + i; if (xx < 0) xx = 0; else if (xx >= w) xx = w - 1;
+        s += src[row + xx] * k[i + r];
+      }
+      tmp[row + x] = s;
+    }
+  }
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let s = 0;
+      for (let i = -r; i <= r; i++) {
+        let yy = y + i; if (yy < 0) yy = 0; else if (yy >= h) yy = h - 1;
+        s += tmp[yy * w + x] * k[i + r];
+      }
+      out[y * w + x] = s;
+    }
+  }
+  return out;
+}
+
+// Edge-preserving bilateral filter (one pass) on R,G,B float channels.
+function bilateral(R, G, B, w, h, radius, sigmaS, sigmaR) {
+  const n = w * h;
+  const oR = new Float32Array(n), oG = new Float32Array(n), oB = new Float32Array(n);
+  const size = radius * 2 + 1;
+  const spatial = new Float32Array(size * size);
+  for (let dy = -radius; dy <= radius; dy++)
+    for (let dx = -radius; dx <= radius; dx++)
+      spatial[(dy + radius) * size + dx + radius] = Math.exp(-(dx * dx + dy * dy) / (2 * sigmaS * sigmaS));
+  // Range-weight lookup table indexed by squared colour distance / 4.
+  const LUT_N = 48769; // 3*255^2/4 + 1
+  const rangeLut = new Float32Array(LUT_N);
+  for (let i = 0; i < LUT_N; i++) rangeLut[i] = Math.exp(-(i * 4) / (2 * sigmaR * sigmaR));
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const c = y * w + x;
+      const r0 = R[c], g0 = G[c], b0 = B[c];
+      let sr = 0, sg = 0, sb = 0, sw = 0;
+      for (let dy = -radius; dy <= radius; dy++) {
+        let yy = y + dy; if (yy < 0) yy = 0; else if (yy >= h) yy = h - 1;
+        const row = yy * w, srow = (dy + radius) * size + radius;
+        for (let dx = -radius; dx <= radius; dx++) {
+          let xx = x + dx; if (xx < 0) xx = 0; else if (xx >= w) xx = w - 1;
+          const p = row + xx;
+          const dr = R[p] - r0, dg = G[p] - g0, db = B[p] - b0;
+          let d = ((dr * dr + dg * dg + db * db) / 4) | 0;
+          if (d >= LUT_N) d = LUT_N - 1;
+          const wt = spatial[srow + dx] * rangeLut[d];
+          sr += R[p] * wt; sg += G[p] * wt; sb += B[p] * wt; sw += wt;
+        }
+      }
+      oR[c] = sr / sw; oG[c] = sg / sw; oB[c] = sb / sw;
+    }
+  }
+  return [oR, oG, oB];
+}
+
+// sRGB <-> CIE Lab so colour clustering matches how people see colour.
+function srgbToLin(v) { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }
+function linToSrgb(v) { v = v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055; return Math.max(0, Math.min(255, v * 255)); }
+const LIN = new Float32Array(256); for (let i = 0; i < 256; i++) LIN[i] = srgbToLin(i);
+function fLab(t) { return t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116; }
+function rgbToLab(r, g, b) {
+  const lr = LIN[Math.max(0, Math.min(255, r | 0))], lg = LIN[Math.max(0, Math.min(255, g | 0))], lb = LIN[Math.max(0, Math.min(255, b | 0))];
+  const X = (lr * 0.4124 + lg * 0.3576 + lb * 0.1805) / 0.95047;
+  const Y = (lr * 0.2126 + lg * 0.7152 + lb * 0.0722);
+  const Z = (lr * 0.0193 + lg * 0.1192 + lb * 0.9505) / 1.08883;
+  const fx = fLab(X), fy = fLab(Y), fz = fLab(Z);
+  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+}
+function labToRgb(L, a, b) {
+  const fy = (L + 16) / 116, fx = fy + a / 500, fz = fy - b / 200;
+  const inv = t => { const t3 = t * t * t; return t3 > 0.008856 ? t3 : (t - 16 / 116) / 7.787; };
+  const X = inv(fx) * 0.95047, Y = inv(fy), Z = inv(fz) * 1.08883;
+  const lr = X * 3.2406 + Y * -1.5372 + Z * -0.4986;
+  const lg = X * -0.9689 + Y * 1.8758 + Z * 0.0415;
+  const lb = X * 0.0557 + Y * -0.2040 + Z * 1.0570;
+  return [linToSrgb(lr), linToSrgb(lg), linToSrgb(lb)];
+}
+
+// k-means++ in Lab space on a random sample of pixels.
+function kmeans(L, A, Bc, n, k) {
+  const SAMPLE = Math.min(n, 24000);
+  const idx = new Uint32Array(SAMPLE);
+  let seed = 1234567;
+  const rand = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+  for (let i = 0; i < SAMPLE; i++) idx[i] = Math.floor(rand() * n);
+  const sL = new Float32Array(SAMPLE), sA = new Float32Array(SAMPLE), sB = new Float32Array(SAMPLE);
+  for (let i = 0; i < SAMPLE; i++) { const p = idx[i]; sL[i] = L[p]; sA[i] = A[p]; sB[i] = Bc[p]; }
+
+  const cL = new Float32Array(k), cA = new Float32Array(k), cB = new Float32Array(k);
+  const dist = new Float32Array(SAMPLE).fill(Infinity);
+  let first = Math.floor(rand() * SAMPLE);
+  cL[0] = sL[first]; cA[0] = sA[first]; cB[0] = sB[first];
+  for (let c = 1; c < k; c++) {
+    let total = 0;
+    for (let i = 0; i < SAMPLE; i++) {
+      const dl = sL[i] - cL[c - 1], da = sA[i] - cA[c - 1], db = sB[i] - cB[c - 1];
+      const d = dl * dl + da * da + db * db;
+      if (d < dist[i]) dist[i] = d;
+      total += dist[i];
+    }
+    let target = rand() * total, pick = SAMPLE - 1;
+    for (let i = 0; i < SAMPLE; i++) { target -= dist[i]; if (target <= 0) { pick = i; break; } }
+    cL[c] = sL[pick]; cA[c] = sA[pick]; cB[c] = sB[pick];
+  }
+  const assign = new Uint8Array(SAMPLE);
+  for (let iter = 0; iter < 14; iter++) {
+    const sumL = new Float64Array(k), sumA = new Float64Array(k), sumB = new Float64Array(k), cnt = new Uint32Array(k);
+    for (let i = 0; i < SAMPLE; i++) {
+      let best = 0, bd = Infinity;
+      for (let c = 0; c < k; c++) {
+        const dl = sL[i] - cL[c], da = sA[i] - cA[c], db = sB[i] - cB[c];
+        const d = dl * dl + da * da + db * db;
+        if (d < bd) { bd = d; best = c; }
+      }
+      assign[i] = best; sumL[best] += sL[i]; sumA[best] += sA[i]; sumB[best] += sB[i]; cnt[best]++;
+    }
+    for (let c = 0; c < k; c++) if (cnt[c]) { cL[c] = sumL[c] / cnt[c]; cA[c] = sumA[c] / cnt[c]; cB[c] = sumB[c] / cnt[c]; }
+  }
+  return { cL, cA, cB };
+}
+
+function process(img, w, h, p) {
+  const n = w * h;
+  const src = img.data;
+  const scale = Math.max(w, h) / 800; // keep effects proportionate to image size
+  const step = (frac) => postMessage({ type: 'progress', value: frac });
+
+  let R = new Float32Array(n), G = new Float32Array(n), B = new Float32Array(n);
+  for (let i = 0, j = 0; i < n; i++, j += 4) { R[i] = src[j]; G[i] = src[j + 1]; B[i] = src[j + 2]; }
+  step(0.05);
+
+  // 1. Smooth away texture while keeping edges sharp.
+  const radius = Math.max(2, Math.round(2.5 * scale));
+  for (let pass = 0; pass < p.smooth; pass++) {
+    [R, G, B] = bilateral(R, G, B, w, h, radius, radius * 0.75, 22 + pass * 4);
+    step(0.05 + 0.45 * (pass + 1) / Math.max(1, p.smooth));
+  }
+
+  // 2. Lines: difference-of-Gaussians on luminance (XDoG-style threshold).
+  const gray = new Float32Array(n);
+  for (let i = 0; i < n; i++) gray[i] = 0.299 * R[i] + 0.587 * G[i] + 0.114 * B[i];
+  let ink = new Float32Array(n);
+  if (p.lineWeight > 0) {
+    const s1 = 0.9 * scale + 0.3;
+    const g1 = blur(gray, w, h, s1), g2 = blur(gray, w, h, s1 * 1.6);
+    // Higher detail => lower threshold => more lines.
+    const thr = 1.2 + (10 - p.lineDetail) * 0.9;
+    for (let i = 0; i < n; i++) {
+      const d = g2[i] - g1[i]; // positive on the dark side of an edge
+      ink[i] = d > thr ? Math.min(1, (d - thr) / 2.5) : 0;
+    }
+    // Thicken lines (max filter), then soften for anti-aliasing.
+    const dil = Math.round((p.lineWeight - 1) * Math.max(1, scale));
+    for (let pass = 0; pass < dil; pass++) {
+      const out = new Float32Array(n);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const c = y * w + x; let m = ink[c];
+        if (x > 0 && ink[c - 1] > m) m = ink[c - 1];
+        if (x < w - 1 && ink[c + 1] > m) m = ink[c + 1];
+        if (y > 0 && ink[c - w] > m) m = ink[c - w];
+        if (y < h - 1 && ink[c + w] > m) m = ink[c + w];
+        out[c] = m;
+      }
+      ink = out;
+    }
+    ink = blur(ink, w, h, 0.6 * Math.max(1, scale));
+    // Remove tiny specks: drop faint isolated ink.
+    for (let i = 0; i < n; i++) ink[i] = ink[i] < 0.12 ? 0 : Math.min(1, ink[i] * 1.25);
+  }
+  step(0.62);
+
+  // 3. Flat colour: cluster in Lab space, then posterise every pixel to its cluster.
+  const L = new Float32Array(n), A = new Float32Array(n), Bc = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const lab = rgbToLab(R[i], G[i], B[i]); L[i] = lab[0]; A[i] = lab[1]; Bc[i] = lab[2]; }
+  const k = p.colors;
+  const { cL, cA, cB } = kmeans(L, A, Bc, n, k);
+  step(0.75);
+
+  // Cartoon palette: punchier chroma, adjustable brightness, gentle lift of shadows.
+  const pal = new Uint8ClampedArray(k * 3);
+  const satMul = p.saturation / 100;
+  for (let c = 0; c < k; c++) {
+    let Lv = cL[c];
+    Lv = 100 * Math.pow(Math.max(0, Lv) / 100, 0.9) + p.brightness * 0.5; // lift mids slightly
+    Lv = Math.max(0, Math.min(100, Lv));
+    const rgb = labToRgb(Lv, cA[c] * satMul, cB[c] * satMul);
+    pal[c * 3] = rgb[0]; pal[c * 3 + 1] = rgb[1]; pal[c * 3 + 2] = rgb[2];
+  }
+
+  let label = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    let best = 0, bd = Infinity;
+    const l = L[i], a = A[i], b = Bc[i];
+    for (let c = 0; c < k; c++) {
+      const dl = l - cL[c], da = a - cA[c], db = b - cB[c];
+      const d = dl * dl + da * da + db * db;
+      if (d < bd) { bd = d; best = c; }
+    }
+    label[i] = best;
+  }
+  step(0.85);
+
+  // 4. Majority (mode) filter to clean up speckled regions.
+  const modePasses = 2;
+  const counts = new Uint16Array(k);
+  for (let pass = 0; pass < modePasses; pass++) {
+    const out = new Uint8Array(n);
+    const r = Math.max(1, Math.round(scale));
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      counts.fill(0);
+      for (let dy = -r; dy <= r; dy++) {
+        const yy = Math.min(h - 1, Math.max(0, y + dy));
+        for (let dx = -r; dx <= r; dx++) {
+          const xx = Math.min(w - 1, Math.max(0, x + dx));
+          counts[label[yy * w + xx]]++;
+        }
+      }
+      let best = label[y * w + x], bc = counts[best];
+      for (let c = 0; c < k; c++) if (counts[c] > bc) { bc = counts[c]; best = c; }
+      out[y * w + x] = best;
+    }
+    label = out;
+  }
+  step(0.93);
+
+  // 5. Composite: flat colour + optional halftone shading + ink.
+  const out = new Uint8ClampedArray(n * 4);
+  const INK_R = 22, INK_G = 18, INK_B = 30;
+  const cell = Math.max(4, Math.round(5 * scale));
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x, j = i * 4, c = label[i];
+    let r = pal[c * 3], g = pal[c * 3 + 1], b = pal[c * 3 + 2];
+    if (p.halftone) {
+      // Dot size grows as the region gets darker (classic comic print look).
+      const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+      const cx = (x % cell) - cell / 2 + 0.5, cy = ((y + (Math.floor(x / cell) % 2) * cell / 2) % cell) - cell / 2 + 0.5;
+      const dotR = (1 - lum) * cell * 0.55;
+      const dd = Math.sqrt(cx * cx + cy * cy);
+      const cover = Math.max(0, Math.min(1, dotR - dd + 0.5));
+      const f = 1 - 0.35 * cover;
+      r *= f; g *= f; b *= f;
+    }
+    const a = ink[i];
+    out[j] = r * (1 - a) + INK_R * a;
+    out[j + 1] = g * (1 - a) + INK_G * a;
+    out[j + 2] = b * (1 - a) + INK_B * a;
+    out[j + 3] = 255;
+  }
+  step(1);
+  return out;
+}
+
+self.onmessage = (e) => {
+  const { id, data, w, h, params } = e.data;
+  try {
+    const out = process({ data }, w, h, params);
+    postMessage({ type: 'done', id, data: out, w, h }, [out.buffer]);
+  } catch (err) {
+    postMessage({ type: 'error', id, message: String(err && err.message || err) });
+  }
+};
+</script>
+
+<!-- ================= App ================= -->
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const video = $('video'), resultCv = $('result'), origCv = $('orig'), stage = $('stage');
+const msg = $('msg'), busy = $('busy'), progress = $('progress');
+
+const STYLES = {
+  'Toon':     { colors: 9,  smooth: 3, lineWeight: 2, lineDetail: 5, saturation: 130, brightness: 4,  halftone: false },
+  'Comic':    { colors: 7,  smooth: 4, lineWeight: 3, lineDetail: 6, saturation: 145, brightness: 0,  halftone: true  },
+  'Pop Art':  { colors: 5,  smooth: 5, lineWeight: 4, lineDetail: 4, saturation: 190, brightness: 8,  halftone: true  },
+  'Pastel':   { colors: 12, smooth: 4, lineWeight: 1, lineDetail: 3, saturation: 75,  brightness: 18, halftone: false },
+  'Anime':    { colors: 14, smooth: 5, lineWeight: 1, lineDetail: 4, saturation: 120, brightness: 10, halftone: false },
+  'Ink Only': { colors: 3,  smooth: 3, lineWeight: 2, lineDetail: 8, saturation: 0,   brightness: 30, halftone: false },
+};
+const SLIDERS = ['colors', 'smooth', 'lineWeight', 'lineDetail', 'saturation', 'brightness'];
+let params = { ...STYLES['Toon'] };
+let currentStyle = 'Toon';
+
+// ---------- worker ----------
+const worker = new Worker(URL.createObjectURL(new Blob([$('workerSrc').textContent], { type: 'text/javascript' })));
+let jobId = 0, pendingJob = false, queued = false;
+worker.onmessage = (e) => {
+  const m = e.data;
+  if (m.type === 'progress') { progress.style.width = (m.value * 100).toFixed(0) + '%'; return; }
+  pendingJob = false;
+  if (m.type === 'done') {
+    resultCv.width = m.w; resultCv.height = m.h;
+    resultCv.getContext('2d').putImageData(new ImageData(m.data, m.w, m.h), 0, 0);
+    resultCv.hidden = false;
+    $('saveBtn').disabled = false;
+  } else {
+    $('hint').innerHTML = '<span class="err">Something went wrong: ' + m.message + '</span>';
+  }
+  if (queued) { queued = false; render(); } else busy.classList.remove('on');
+};
+
+// ---------- camera ----------
+let stream = null, facing = 'environment';
+async function startCamera() {
+  stopCamera();
+  msg.hidden = false;
+  msg.innerHTML = '<div class="spinner"></div><div>Starting camera…</div>';
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showCamError('This browser cannot open the camera here. Camera access needs HTTPS (or localhost). You can still choose a photo with the gallery button.');
+    return;
+  }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: facing }, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false
+    });
+    video.srcObject = stream;
+    await video.play().catch(() => {});
+    const settings = stream.getVideoTracks()[0].getSettings ? stream.getVideoTracks()[0].getSettings() : {};
+    const isUser = settings.facingMode ? settings.facingMode === 'user' : facing === 'user';
+    video.classList.toggle('mirror', isUser);
+    msg.hidden = true;
+    $('shutter').disabled = false;
+  } catch (err) {
+    const denied = err && (err.name === 'NotAllowedError' || err.name === 'SecurityError');
+    showCamError(denied
+      ? 'Camera permission was blocked. Allow camera access in your browser settings, or choose a photo with the gallery button.'
+      : 'Could not start the camera (' + (err && err.name || 'error') + '). You can choose a photo with the gallery button instead.');
+  }
+}
+function showCamError(text) {
+  msg.hidden = false;
+  msg.innerHTML = '<div style="font-size:40px">📷</div><div>' + text + '</div>' +
+    '<button class="primary" onclick="document.getElementById(\'fileInput\').click()">Choose a photo</button>' +
+    '<button onclick="startCamera()">Try camera again</button>';
+  $('shutter').disabled = true;
+}
+function stopCamera() {
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  video.srcObject = null;
+}
+
+// ---------- capture ----------
+let sourceCanvas = null; // full-resolution captured photo
+function capture() {
+  if (!video.videoWidth) return;
+  const c = document.createElement('canvas');
+  c.width = video.videoWidth; c.height = video.videoHeight;
+  const ctx = c.getContext('2d');
+  if (video.classList.contains('mirror')) { ctx.translate(c.width, 0); ctx.scale(-1, 1); }
+  ctx.drawImage(video, 0, 0);
+  flash();
+  useSource(c);
+}
+function flash() {
+  const f = document.createElement('div');
+  f.style.cssText = 'position:absolute;inset:0;background:#fff;opacity:.9;transition:opacity .35s;pointer-events:none';
+  stage.appendChild(f);
+  requestAnimationFrame(() => requestAnimationFrame(() => { f.style.opacity = 0; }));
+  setTimeout(() => f.remove(), 400);
+}
+function useSource(canvas) {
+  sourceCanvas = canvas;
+  stopCamera();
+  video.hidden = true; msg.hidden = true;
+  $('camBar').hidden = true; $('resBar').hidden = false;
+  $('panel').classList.add('on');
+  $('hint').textContent = 'Pick a style or tweak the sliders. Tap Compare to see the original.';
+  const ar = canvas.width / canvas.height;
+  stage.style.aspectRatio = ar.toFixed(4);
+  render();
+}
+
+function render() {
+  if (!sourceCanvas) return;
+  if (pendingJob) { queued = true; return; }
+  const maxSide = $('hires').checked ? 1600 : 900;
+  const s = Math.min(1, maxSide / Math.max(sourceCanvas.width, sourceCanvas.height));
+  const w = Math.round(sourceCanvas.width * s), h = Math.round(sourceCanvas.height * s);
+  origCv.width = w; origCv.height = h;
+  const octx = origCv.getContext('2d', { willReadFrequently: true });
+  octx.imageSmoothingQuality = 'high';
+  octx.drawImage(sourceCanvas, 0, 0, w, h);
+  origCv.hidden = false;
+  const img = octx.getImageData(0, 0, w, h);
+  pendingJob = true;
+  progress.style.width = '0%';
+  busy.classList.add('on');
+  $('saveBtn').disabled = true;
+  worker.postMessage({ id: ++jobId, data: img.data, w, h, params: { ...params } }, [img.data.buffer]);
+}
+
+function retake() {
+  sourceCanvas = null;
+  resultCv.hidden = true; origCv.hidden = true; video.hidden = false;
+  stage.style.aspectRatio = '';
+  setCompare(false);
+  $('camBar').hidden = false; $('resBar').hidden = true;
+  $('panel').classList.remove('on');
+  $('hint').textContent = 'Point the camera at something and tap the shutter. You can also pick a photo with the gallery button.';
+  startCamera();
+}
+
+// ---------- compare ----------
+function setCompare(on) {
+  stage.classList.toggle('comparing', on);
+  const v = on ? 50 : 0;
+  $('splitRange').value = v;
+  stage.style.setProperty('--split', v + '%');
+  $('compareBtn').classList.toggle('primary', on);
+}
+$('compareBtn').onclick = () => setCompare(!stage.classList.contains('comparing'));
+$('splitRange').oninput = (e) => stage.style.setProperty('--split', e.target.value + '%');
+
+// ---------- save ----------
+$('saveBtn').onclick = () => {
+  resultCv.toBlob(async (blob) => {
+    const name = 'toon-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.png';
+    const file = new File([blob], name, { type: 'image/png' });
+    if (navigator.canShare && navigator.canShare({ files: [file] }) && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) {
+      try { await navigator.share({ files: [file], title: 'My cartoon' }); return; } catch (e) { if (e.name === 'AbortError') return; }
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }, 'image/png');
+};
+
+// ---------- upload ----------
+$('uploadBtn').onclick = () => $('fileInput').click();
+$('fileInput').onchange = async (e) => {
+  const file = e.target.files[0]; e.target.value = '';
+  if (!file) return;
+  try {
+    const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }).catch(() => createImageBitmap(file));
+    const c = document.createElement('canvas');
+    c.width = bmp.width; c.height = bmp.height;
+    c.getContext('2d').drawImage(bmp, 0, 0);
+    setCompare(false);
+    useSource(c);
+  } catch (err) {
+    $('hint').innerHTML = '<span class="err">Could not open that image.</span>';
+  }
+};
+
+// ---------- controls ----------
+$('shutter').onclick = capture;
+$('flipBtn').onclick = () => { facing = facing === 'user' ? 'environment' : 'user'; startCamera(); };
+$('retakeBtn').onclick = retake;
+$('timerBtn').onclick = () => {
+  if (!stream) return;
+  let n = 3;
+  const t = document.createElement('div');
+  t.style.cssText = 'position:absolute;inset:0;display:grid;place-items:center;font-size:110px;font-weight:800;color:#fff;text-shadow:0 4px 20px #000;pointer-events:none';
+  stage.appendChild(t);
+  const tick = () => {
+    if (n === 0) { t.remove(); capture(); return; }
+    t.textContent = n--; setTimeout(tick, 1000);
+  };
+  tick();
+};
+
+const stylesEl = $('styles');
+for (const name of Object.keys(STYLES)) {
+  const b = document.createElement('button');
+  b.textContent = name; b.dataset.style = name;
+  b.onclick = () => applyStyle(name);
+  stylesEl.appendChild(b);
+}
+function syncControls() {
+  for (const id of SLIDERS) {
+    const el = $(id); el.value = params[id];
+    el.nextElementSibling.textContent = id === 'saturation' ? params[id] + '%' : params[id];
+  }
+  $('halftone').checked = params.halftone;
+  for (const b of stylesEl.children) b.classList.toggle('on', b.dataset.style === currentStyle);
+}
+function applyStyle(name) {
+  currentStyle = name; params = { ...STYLES[name] };
+  syncControls(); render();
+}
+let debounce;
+for (const id of SLIDERS) {
+  $(id).addEventListener('input', (e) => {
+    params[id] = +e.target.value;
+    e.target.nextElementSibling.textContent = id === 'saturation' ? params[id] + '%' : params[id];
+    currentStyle = null; syncControls();
+    clearTimeout(debounce); debounce = setTimeout(render, 250);
+  });
+}
+$('halftone').onchange = (e) => { params.halftone = e.target.checked; currentStyle = null; syncControls(); render(); };
+$('hires').onchange = render;
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) stopCamera();
+  else if (!sourceCanvas) startCamera();
+});
+
+syncControls();
+startCamera();
+</script>
+</body>
+</html>
