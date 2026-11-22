@@ -1042,8 +1042,8 @@ function addRoad(enter, hold, leave, curve, height, stage) {
   for (let i = 0; i < leave; i++) addSegment(easeInOut(curve, 0, i/leave), easeInOut(startY, endY, (enter+hold+i)/total), stage);
 }
 
-// A hairpin: a tight 180-degree bend (about 27 m radius in the 3D view) that needs a big lift or a dab of brake.
-const HAIRPIN_CURVE = 15, HAIRPIN_IN = 25, HAIRPIN_OUT = 25;
+// A hairpin: a 180-degree bend (about 40 m radius in the 3D view), eased in and out so it tightens progressively.
+const HAIRPIN_CURVE = 10, HAIRPIN_IN = 45, HAIRPIN_OUT = 45, HAIRPIN_PULL = 7.5;
 const HAIRPIN_HOLD = Math.round(Math.PI / (HAIRPIN_CURVE * 0.25 / SEG_LEN) - HAIRPIN_IN / 3 - HAIRPIN_OUT / 2);
 let hairpins = [];                                       // { seg, dir } where each hairpin starts, for the warning
 function addHairpin(dir, height, stage) {
@@ -1053,9 +1053,11 @@ function addHairpin(dir, height, stage) {
   addRoad(20, 30, 20, 0, 0, stage);                      // and a breather after
 }
 
-function buildTrack() {
-  segments = []; hairpins = [];
+let trackSkipsAlpine = false;
+function buildTrack(skipAlpine = false) {
+  segments = []; hairpins = []; trackSkipsAlpine = skipAlpine;
   for (let s = 0; s < N_STAGES; s++) {
+    if (skipAlpine && s === ALPINE) continue;             // the WANTED lap leaves out the Alpine Pass (no hairpins with a gang on you)
     const R = rng(4242 + s * 131);
     const start = segments.length;
     addRoad(40, 40, 40, 0, 0, s);
@@ -1282,6 +1284,18 @@ function resetCars() {
   const R = rng((Math.random() * 1e9) | 0);
   const count = Math.min(MAX_CARS, Math.round(N_CARS * trafficScale()));
   for (let n = 0; n < count; n++) makeCar(R, () => Math.floor((0.04 + R() * 0.95) * segments.length) * SEG_LEN);
+}
+// Swap between the full circuit and the WANTED circuit (no Alpine Pass). Only ever done at the start line.
+function setTrackFor(eraIdx) {
+  const skip = !!ERAS[eraIdx].bonus;
+  if (skip === trackSkipsAlpine) return false;
+  const oldLen = trackLength;
+  const fromStart = position > oldLen / 2 ? position - oldLen : position;   // keep our offset from the start line
+  buildTrack(skip);
+  position = wrap(fromStart, trackLength);
+  if (R3.retrack) R3.retrack();
+  resetCars();
+  return true;
 }
 function findSegment(z) { return segments[Math.floor(z / SEG_LEN) % segments.length]; }
 
@@ -2187,7 +2201,7 @@ function update(dt) {
   const thr = over ? -0.4 : input.throttle;
   playerX += dx * input.steer * (over ? 0 : 1.15) + playerVX * dt;     // steering + any knock from a collision
   playerVX *= Math.exp(-dt * 5);
-  playerX -= dx * pct * clamp(playerSeg.curve, -11, 11) * CENTRIFUGAL;   // hairpins look tighter than they pull
+  playerX -= dx * pct * clamp(playerSeg.curve, -HAIRPIN_PULL, HAIRPIN_PULL) * CENTRIFUGAL;   // hairpins look tighter than they pull: takeable at ~half speed
 
   if (thr > 0) speed += ACCEL * thr * (1 - 0.45 * pct) * dt;
   else if (thr < 0) speed += BRAKE * -thr * dt;
@@ -2273,7 +2287,7 @@ function update(dt) {
   updateBonus(dt, playerSeg, pw, over);
   for (const hp of hairpins) {                           // flag each hairpin a couple of seconds before it
     const ahead = hp.seg - playerSeg.index;
-    if (ahead > 0 && ahead < 160 && hp.warned !== lap && !over) { hp.warned = lap; toast(hp.dir < 0 ? '\u21B6 HAIRPIN LEFT \u2014 BRAKE!' : 'HAIRPIN RIGHT \u21B7 \u2014 BRAKE!'); }
+    if (ahead > 0 && ahead < 280 && hp.warned !== lap && !over) { hp.warned = lap; toast(hp.dir < 0 ? '\u21B6 HAIRPIN LEFT \u2014 BRAKE!' : 'HAIRPIN RIGHT \u21B7 \u2014 BRAKE!'); }
   }
 
   // checkpoints / stage changes
@@ -2290,7 +2304,7 @@ function update(dt) {
       setMsg(wrapped ? 'LAP ' + lap + ' COMPLETE!' : 'CHECKPOINT!', '+' + bonus + ' SEC  ·  ' + THEMES[curStage].name); msgTimer = 2.5;
       sfxCheckpoint();
       // each lap moves one era along: up to HD, then back down to EGA, and round again
-      if (wrapped && setEra(eraForLap(lap))) announceEra();
+      if (wrapped && setEra(eraForLap(lap))) { announceEra(); setTrackFor(era); }
       if (wrapped && wasWanted) { removeGang(); score += 25000; timeLeft += 20; setMsg('YOU SURVIVED!', '+25,000 &middot; +20 SEC'); msgTimer = 3;
         raiseTraffic(); toast('TRAFFIC +20% · SPEED +20%'); }
       if (wrapped && ERAS[era].bonus) gangIncoming();
@@ -2370,7 +2384,7 @@ function updateCars(dt) {
       if (free.length && Math.abs(car.target - car.offset) < 0.05) car.target = free[Math.floor(Math.random() * free.length)];
       else if (gap < 8 * SEG_LEN) want = Math.min(want, ahead.speed * (gap < 2 * SEG_LEN ? 0.9 : 1));
     }
-    if (Math.abs(findSegment(car.z + 30 * SEG_LEN).curve) > 8 || Math.abs(car.seg.curve) > 8) want = Math.min(want, MAX_SPEED * 0.3);   // everyone slows for a hairpin
+    if (Math.abs(findSegment(car.z + 30 * SEG_LEN).curve) > 8 || Math.abs(car.seg.curve) > 8) want = Math.min(want, MAX_SPEED * 0.42);   // everyone slows for a hairpin
     car.speed += clamp(want - car.speed, -MAX_SPEED * 0.7 * dt, MAX_SPEED * 0.12 * dt);
     car.timer -= dt;
     if (car.timer <= 0) { car.timer = 3 + Math.random() * 6; const l = LANES3[Math.floor(Math.random() * 3)]; if (laneFree(car, l)) car.target = l; }
@@ -3379,8 +3393,9 @@ function build3D(T, A) {
 
   // ---------- per-frame scratch ----------
   const px = new Float32Array(ROWS), py = new Float32Array(ROWS), pz = new Float32Array(ROWS), ph = new Float32Array(ROWS), pi = new Int32Array(ROWS);
-  const Hs = new Float64Array(segments.length + 1);
-  for (let i = 0; i < segments.length; i++) Hs[i + 1] = Hs[i] + segments[i].curve * CURVE_K;
+  let Hs;
+  const headings = () => { Hs = new Float64Array(segments.length + 1); for (let i = 0; i < segments.length; i++) Hs[i + 1] = Hs[i] + segments[i].curve * CURVE_K; };
+  headings();
   const mtx = new T.Matrix4(), q = new T.Quaternion(), vPos = new T.Vector3(), vScl = new T.Vector3(), Y = new T.Vector3(0, 1, 0);
   const cA = new T.Color(), cB = new T.Color();
   let hOff = 0, lastBase = -1, wheelSpin = 0, camH = null;
@@ -3755,6 +3770,7 @@ function build3D(T, A) {
       CUT.scr.head = proj(cutRoot.localToWorld(tmp.set(DL[0], 0.35, DL[1] + 1.4)));
     };
   }
+  R3.retrack = () => { headings(); lastBase = -1; hOff = 0; camH = null; };
   Object.assign(R3, { canvas, render3D, setSize });
 }
 
@@ -3877,6 +3893,7 @@ async function startGame() {
   }
   position = 0; speed = 0; playerX = 0; playerVX = 0; bonus.active = bonus.armed = bonus.done = false; timeLeft = START_TIME; score = 0; stagesCleared = 0; curStage = 0; topSpeed = 0;
   themeFrom = themeTo = 0; themeBlend = 1; bgOffset = 0; particles.length = 0;
+  { const qe0 = parseInt(new URLSearchParams(location.search).get('era'), 10); let l0 = 0; if (qe0 > 1 && qe0 <= N_ERAS) while (eraForLap(l0) !== qe0 - 1) l0++; setTrackFor(eraForLap(l0)); }
   const qs = parseInt(new URLSearchParams(location.search).get('stage'), 10);
   if (qs > 1 && qs <= N_STAGES) { const i = segments.findIndex(sg => sg.stage === qs - 1); position = i * SEG_LEN; curStage = themeFrom = themeTo = stagesCleared = qs - 1; }
   lap = 0;
@@ -4037,7 +4054,7 @@ function endGame(busted) {
   $('newHi').textContent = isHi ? 'NEW HI-SCORE!' : '';
   setMsg('', ''); setHUD(false); showPanel('over');
 }
-function toMenu() { allowSleep(); state = 'title'; setHUD(false); refreshSettingsUI(); showPanel('title'); resize(); }
+function toMenu() { allowSleep(); setTrackFor(0); state = 'title'; setHUD(false); refreshSettingsUI(); showPanel('title'); resize(); }
 
 $('startBtn').addEventListener('click', startGame);
 $('againBtn').addEventListener('click', startGame);

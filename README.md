@@ -5,7 +5,8 @@ An arcade sunset driving game in a single HTML file, built for phones. You steer
 ## A drive through gaming time
 The circuit has seven stages — Coastline, Desert Run, Alpine Pass, Downtown Rain, Beachfront, Sunset Blvd and Neon City.
 The Alpine Pass has two hairpin bends — a left-hander on the climb and a right-hander on the way down — flagged
-a moment before you reach them; take them at around a third of top speed.
+a moment before you reach them; take them at around half speed. The WANTED lap runs on the circuit without the
+Alpine Pass.
 Every full lap moves the graphics and music one era along — up to HD and back down again, and every run in either
 direction ends with the WANTED survival lap (EGA → Amiga → VGA → SVGA → HD → **WANTED** → SVGA → VGA → Amiga → EGA →
 **WANTED** → Amiga → …):
