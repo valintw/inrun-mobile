@@ -65,7 +65,8 @@ const SAMPLED = {
 const STAGE = { surf: 'Coastline', western: 'Desert Run', polka: 'Alpine Pass', industrial: 'Downtown Rain', calypso: 'Beachfront', synthwave: 'Sunset Blvd', techno: 'Neon City' };
 // the note each role typically plays in the game (before the instrument's octave shift): A in that register
 const ROLE_A = { bass: 33, lead: 81, counter: 69, comp: 69, arp: 81 };
-const KEY = 'inrun_tune';
+const KEY = 'inrun_tune', TUNE_BASE = '2';         // must match TUNE_BASE in index.html
+try { if (localStorage.getItem('inrun_tune_base') !== TUNE_BASE) { localStorage.removeItem(KEY); localStorage.setItem('inrun_tune_base', TUNE_BASE); } } catch (e) {}
 const load = () => { try { return JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { return {}; } };
 const save = t => { try { localStorage.setItem(KEY, JSON.stringify(t)); } catch (e) {} };
 let tune = load(), man = null, bufs = {}, crunched = {}, ctx = null, mode = 'gus', drone = null;

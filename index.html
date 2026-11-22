@@ -1595,10 +1595,13 @@ const SAMPLED = {
   synthwave:  { lead: ['sax', -12],     counter: ['strings', 0],  comp: ['strings', 12], arp: ['vibes', 0],   bass: null },
   techno:     { lead: ['piano', -24],   counter: ['orchhit', 0],  comp: ['piano', 0],    arp: ['piano', -12], bass: null },
 };
+const TUNE_BASE = '2';                   // bump whenever tune.html corrections are baked into assets/inst/manifest.json
 async function loadInstruments() {
   try {
     const man = await (await fetch('assets/inst/manifest.json')).json(), out = {};
-    let tune = {}; try { tune = JSON.parse(store('inrun_tune') || '{}') || {}; } catch (e) {}   // by-ear corrections from tune.html
+    // by-ear corrections from tune.html; corrections made against an older manifest are dropped once they've been baked in
+    if (store('inrun_tune_base') !== TUNE_BASE) { try { localStorage.removeItem('inrun_tune'); } catch (e) {} store('inrun_tune_base', TUNE_BASE); }
+    let tune = {}; try { tune = JSON.parse(store('inrun_tune') || '{}') || {}; } catch (e) {}
     await Promise.all(Object.keys(man).map(async k => {
       const r = await fetch('assets/inst/' + k + '.wav'); if (!r.ok) throw new Error(k);
       out[k] = { buf: await audio.ctx.decodeAudioData(await r.arrayBuffer()), root: man[k].root - (+tune[k] || 0), loop: man[k].loop };
