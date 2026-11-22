@@ -1413,9 +1413,9 @@ function crunch(buf, rate, maxSecs) {
   return b;
 }
 // shared engine model: rpm through the gearbox -> firing frequency of a 4-cylinder four-stroke
-// the recorded engine loops: natural firing rates of the idle and high-rev slices (see assets/CREDITS.md)
-const ENG_LO_HZ = 62, ENG_HI_HZ = 149;
-const engRate = (fire, base, lo = 0.55, hi = 2.6) => clamp(fire / base, lo, hi);   // keep a real recording out of chipmunk territory
+// the modelled engine loops' natural firing rates (assets/sfx/engine_lo.wav / engine_hi.wav)
+const ENG_LO_HZ = 45, ENG_HI_HZ = 126;
+const engRate = (fire, base, lo = 0.4, hi = 6) => clamp(fire / base, lo, hi);
 function engineFire(p, gears, thr) {
   const g = Math.min(gears - 1, Math.floor(p * gears)), local = p * gears - g;
   const rpm = 900 + local * (gears > 2 ? 4800 : 5200) + g * 350 + (thr > 0 ? 120 : 0);
@@ -1886,7 +1886,7 @@ function update(dt) {
       if (cam.samples.length > 3) { const c = cam.samples.slice(-45).sort((a, b) => a - b); cam.neutral = c[Math.floor(c.length / 2)]; }
       else cam.neutral = null;   // set on first detection
       cam.samples = [];
-      state = 'race'; setMsg('GO!', ''); msgTimer = 1; sfxBeep(true);
+      state = 'race'; setMsg('GO!', ''); msgTimer = 1; sfxBeep(true); keepAwake();
       if (settings.mode === 'tilt' && !tilt.ok && isTouch) { setMode('touch'); toast('NO TILT SENSOR FOUND — TOUCH CONTROLS ON'); }
     }
     return;
@@ -3350,6 +3350,40 @@ function refreshSettingsUI() {
   $('hiTitle').textContent = hiScore;
 }
 
+// ---- keep the screen awake while racing ----
+// Screen Wake Lock where available (re-acquired whenever the OS drops it), plus on iPhone/iPad the
+// "NoSleep" fallback — a tiny muted looping inline video — for older iOS and home-screen web apps.
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const awake = { lock: null, video: null, want: false };
+function keepAwake() {
+  awake.want = true;
+  try {
+    if ('wakeLock' in navigator && (!awake.lock || awake.lock.released) && document.visibilityState === 'visible') {
+      navigator.wakeLock.request('screen').then(l => {
+        awake.lock = l;
+        l.addEventListener('release', () => { if (awake.want && document.visibilityState === 'visible') setTimeout(keepAwake, 300); });
+      }).catch(() => {});
+    }
+  } catch (e) {}
+  if (isIOS || !('wakeLock' in navigator)) {
+    if (!awake.video) {
+      const v = document.createElement('video');
+      v.setAttribute('playsinline', ''); v.setAttribute('webkit-playsinline', ''); v.setAttribute('muted', ''); v.muted = true; v.loop = true;
+      v.setAttribute('aria-hidden', 'true'); v.src = 'assets/nosleep.mp4';
+      v.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;opacity:0.01;pointer-events:none;z-index:-1';
+      document.body.appendChild(v); awake.video = v;
+    }
+    if (awake.video.paused) awake.video.play().catch(() => {});
+  }
+}
+function allowSleep() {
+  awake.want = false;
+  try { if (awake.lock && !awake.lock.released) awake.lock.release(); } catch (e) {}
+  awake.lock = null;
+  if (awake.video && !awake.video.paused) awake.video.pause();
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden && awake.want) keepAwake(); });
+
 async function startGame() {
   initAudio();
   const needsPerm = typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function';
@@ -3358,11 +3392,12 @@ async function startGame() {
     const ok = await enableWebcam();
     if (!ok) { setMode('keys'); toast('NO CAMERA ACCESS — KEYBOARD CONTROLS'); }
   }
-  if (settings.mode === 'tilt') {
-    const ok = await enableSensors();
+  const sensorAsk = settings.mode === 'tilt' ? enableSensors() : null;   // starts the iOS motion prompt inside the tap
+  keepAwake();                                                            // ...and grabs the wake lock in the same tap
+  if (sensorAsk) {
+    const ok = await sensorAsk;
     if (!ok && isTouch) { setMode('touch'); toast('TILT PERMISSION DENIED — TOUCH CONTROLS ON'); }
   }
-  try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {}
   position = 0; speed = 0; playerX = 0; playerVX = 0; bonus.active = bonus.armed = bonus.done = false; timeLeft = START_TIME; score = 0; stagesCleared = 0; curStage = 0; topSpeed = 0;
   themeFrom = themeTo = 0; themeBlend = 1; bgOffset = 0; particles.length = 0;
   const qs = parseInt(new URLSearchParams(location.search).get('stage'), 10);
@@ -3389,8 +3424,9 @@ function goFullscreen() {
   }
 }
 function pauseGame() { if (state !== 'race' && state !== 'countdown') return; state = 'paused'; showPanel('pause'); setMsg('', ''); updateTouchUI(); }
-function resumeGame() { initAudio(); showPanel(null); beginCountdown(); }
+function resumeGame() { initAudio(); keepAwake(); showPanel(null); beginCountdown(); }
 function endGame() {
+  allowSleep();
   state = 'gameover';
   const s = Math.floor(score);
   let isHi = false;
@@ -3400,7 +3436,7 @@ function endGame() {
   $('newHi').textContent = isHi ? 'NEW HI-SCORE!' : '';
   setMsg('', ''); setHUD(false); showPanel('over');
 }
-function toMenu() { state = 'title'; setHUD(false); refreshSettingsUI(); showPanel('title'); resize(); }
+function toMenu() { allowSleep(); state = 'title'; setHUD(false); refreshSettingsUI(); showPanel('title'); resize(); }
 
 $('startBtn').addEventListener('click', startGame);
 $('againBtn').addEventListener('click', startGame);
