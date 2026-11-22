@@ -40,6 +40,9 @@ In the tracker/synth eras the score reacts to the game, in the spirit of LucasAr
   western with twang guitar and whistle (Desert Run), oom-pah polka with accordion, flugelhorn and tuba (Alpine Pass),
   industrial EBM with metallic clangs (Downtown Rain), calypso with steel pan and ukulele (Beachfront), synthwave (Sunset Blvd) and techno with acid bass (Neon City). Crossing a checkpoint plays a one-bar fill, then the
   new arrangement enters at the top of a phrase. Game over ends on a final chord.
+- **Tuning by ear** — open `tune.html` to play each sampled instrument against an A drone (clean or Amiga 8-bit)
+  and nudge it in semitones/cents. Settings are saved in the browser and the game uses them on the next load;
+  **Copy settings** gives a line to bake into `assets/inst/manifest.json`.
 - **Crash = minor key** — hit scenery or another car and the band drops straight into A Phrygian (major-key styles
   turn minor, minor ones get a dark flattened 2nd) for the rest of the bar plus four more. In the HD era the MP3 track
   sags about a semitone and goes muffled for the same time.

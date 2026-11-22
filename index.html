@@ -1187,6 +1187,8 @@ function spawnGang() {
   bust.t = 0; bust.grace = 3;
 }
 // The gang turns up late in the lap the first time (75% round), and 20% earlier on every later cycle.
+// lap progress measured at the car (the lap ticks over when the car, not the camera, crosses the line)
+const lapProgress = () => wrap(position + PLAYER_Z, trackLength) / trackLength;
 const gangArrivalPoint = () => Math.max(0.15, 0.75 - 0.2 * wantedBefore(lap));
 function gangIncoming() {
   removeGang(); bust.arriveAt = gangArrivalPoint(); bust.warned = false;
@@ -1596,9 +1598,10 @@ const SAMPLED = {
 async function loadInstruments() {
   try {
     const man = await (await fetch('assets/inst/manifest.json')).json(), out = {};
+    let tune = {}; try { tune = JSON.parse(store('inrun_tune') || '{}') || {}; } catch (e) {}   // by-ear corrections from tune.html
     await Promise.all(Object.keys(man).map(async k => {
       const r = await fetch('assets/inst/' + k + '.wav'); if (!r.ok) throw new Error(k);
-      out[k] = { buf: await audio.ctx.decodeAudioData(await r.arrayBuffer()), root: man[k].root, loop: man[k].loop };
+      out[k] = { buf: await audio.ctx.decodeAudioData(await r.arrayBuffer()), root: man[k].root - (+tune[k] || 0), loop: man[k].loop };
     }));
     audio.inst = out;
     setAudioEra(audio.era);
@@ -1717,7 +1720,7 @@ function rigAmiga() {
       // play a role on a channel: the style's sampled instrument (8-bit, ~16.7 kHz, as in Paula memory) or the synth wave
       const play = (c, role, part, n, vol, dur) => {
         const I = instFor(ev, role);
-        if (I) { const b = paulaBuf(I); const r = Math.pow(2, (n + I.shift - I.root) / 12) * I.buf.sampleRate / b.sampleRate;
+        if (I) { const b = paulaBuf(I); const r = Math.pow(2, (n + I.shift - I.root) / 12);   // the 16.7 kHz copy already plays at true pitch
           return c.play(b, r, vol * 1.25, t, I.loop ? dur : Math.max(dur, 0.35), !!I.loop, null, I.loop); }
         return c.play(cyc(part.tb), cr(n), vol, t, dur, true, TIMBRES[part.tb]);
       };
@@ -1728,7 +1731,7 @@ function rigAmiga() {
       else if (ev.comp) {                                    // chords on one channel: the tracker "0xy" arpeggio effect
         const I = instFor(ev, 'comp');
         const s2 = play(ch[1], 'comp', ev.comp, ev.comp.notes[0], 0.22 * v, ev.comp.len);
-        const rateOf = n => I ? Math.pow(2, (n + I.shift - I.root) / 12) * I.buf.sampleRate / paulaBuf(I).sampleRate : cr(n);
+        const rateOf = n => I ? Math.pow(2, (n + I.shift - I.root) / 12) : cr(n);
         for (let k = 1, tt = t + 0.02; tt < t + ev.comp.len; k++, tt += 0.02) s2.playbackRate.setValueAtTime(rateOf(ev.comp.notes[k % 3]), tt);
       }
       if (ev.kick) ch[2].play(S.kick, 1, 0.8 * v, t);
@@ -2252,7 +2255,7 @@ function update(dt) {
       const near = cars.some(c => c.gang && Math.abs(zDelta(c.z - (position + PLAYER_Z))) < lenOf('pickup') * 2);
       const boxed = gangBoxed() && speed < MAX_SPEED * BUST_SPEED, stopped = near && speed < MAX_SPEED * 0.05;
       bust.slowT = speed < MAX_SPEED * BOX_SLOW ? (bust.slowT || 0) + dt : 0;
-      const prog = position / trackLength, hasGang = cars.some(c => c.gang);
+      const prog = lapProgress(), hasGang = cars.some(c => c.gang);
       if (!hasGang && bust.arriveAt != null) {
         if (!bust.warned && prog > bust.arriveAt - 0.04) { bust.warned = true; toast('THEY\u2019VE FOUND YOU — KEEP YOUR SPEED UP!'); }
         if (prog >= bust.arriveAt) { bust.arriveAt = null; spawnGang(); toast('THERE THEY ARE — WEAVE THROUGH!'); }
@@ -3769,7 +3772,7 @@ function updateHUD() {
   setText(hud.hi, 'h', String(Math.max(hiScore, Math.floor(score))));
   const wanted = !!ERAS[era].bonus;
   setText($('timeLbl'), 'tl', wanted ? 'SURVIVE' : 'TIME');
-  setText(hud.time, 't', wanted ? Math.floor(position / trackLength * 100) + '%' : String(Math.ceil(timeLeft)));
+  setText(hud.time, 't', wanted ? Math.floor(lapProgress() * 100) + '%' : String(Math.ceil(timeLeft)));
   const bx = $('boxed'); bx.style.display = wanted && bust.t > 0.05 && state === 'race' ? 'block' : 'none';
   if (bust.t > 0.05) bx.querySelector('i').style.width = Math.min(100, bust.t / 1.6 * 100) + '%';
   const fx = $('sirenFx'), near = wanted && state === 'race' ? gangNearness() : 0;
