@@ -1191,14 +1191,21 @@ function spawnGang() {
 // The gang turns up late in the lap the first time (75% round), and 20% earlier on every later cycle.
 // lap progress measured at the car (the lap ticks over when the car, not the camera, crosses the line)
 const lapProgress = () => wrap(position + PLAYER_Z, trackLength) / trackLength;
+// How many times the gang tries to box you in before giving up: 3 on the first WANTED lap, one more each time after.
+const gangAttemptLimit = () => 3 + wantedBefore(lap);
+function gangGiveUp() {
+  bust.gaveUp = true; bust.t = 0;
+  for (const c of cars) if (c.gang) { c.mode = c.role = 'quit'; c.target = c.offset < 0 ? -0.95 : 0.95; }
+  toast('THE GANG HAS GIVEN UP — JUST FINISH THE LAP!');
+}
 const gangArrivalPoint = () => Math.max(0.15, 0.75 - 0.2 * wantedBefore(lap));
 function gangIncoming() {
-  removeGang(); bust.arriveAt = gangArrivalPoint(); bust.warned = false;
+  removeGang(); bust.arriveAt = gangArrivalPoint(); bust.warned = false; bust.attempts = 0; bust.boxing = false; bust.gaveUp = false;
   toast('A GANG IS HUNTING FOR YOUR CAR — FINISH THE LAP!');
 }
 function removeGang() {
   for (const c of cars.filter(c => c.gang)) { const i = c.seg.cars.indexOf(c); if (i >= 0) c.seg.cars.splice(i, 1); }
-  cars = cars.filter(c => !c.gang); bust.t = 0; bust.spawnIn = 0; bust.arriveAt = null;
+  cars = cars.filter(c => !c.gang); bust.t = 0; bust.spawnIn = 0; bust.arriveAt = null; bust.boxing = false;
 }
 function assignBoxRoles() {                     // the boxers decide who blocks and who pins, every frame
   const pz = position + PLAYER_Z, box = cars.filter(c => c.gang && c.mode === 'box').map(c => ({ c, dz: zDelta(c.z - pz) })).sort((a, b) => b.dz - a.dz);
@@ -1212,6 +1219,13 @@ function assignBoxRoles() {                     // the boxers decide who blocks 
 }
 function gangDrive(car, dt) {
   const pz = position + PLAYER_Z, L = lenOf('pickup'), half = (L + lenOf('player')) / 2, dz = zDelta(car.z - pz);
+  if (car.mode === 'quit') {                    // given up: pull over to the verge, slow right down and fall away behind
+    car.speed = Math.max(MAX_SPEED * 0.15, car.speed - MAX_SPEED * 0.4 * dt);
+    car.offset = clamp(car.offset + clamp(car.target - car.offset, -0.5 * dt, 0.5 * dt) + (car.vx || 0) * dt, -1.8, 1.8); car.vx = (car.vx || 0) * Math.exp(-dt * 2);
+    car.z = wrap(car.z + dt * car.speed, trackLength);
+    if (dz < -40 * SEG_LEN || dz > 400 * SEG_LEN) car.gone = true;
+    return;
+  }
   if (dz < -45 * SEG_LEN) {                     // left far behind: it turns up again further ahead, as fresh "traffic"
     car.z = wrap(pz + (95 + Math.random() * 60) * SEG_LEN, trackLength);
     car.offset = car.target = LANES3[Math.floor(Math.random() * 3)]; car.speed = MAX_SPEED * GANG_CRUISE; car.mode = car.role = 'cruise'; car.stun = car.hop = car.spin = 0;
@@ -1228,7 +1242,7 @@ function gangDrive(car, dt) {
     return;
   }
   if (car.mode === 'box' && speed > MAX_SPEED * BREAK_FREE) car.mode = car.role = 'cruise';          // you broke free
-  else if (car.mode === 'cruise' && bust.slowT > 1.6 && Math.abs(dz) < 40 * SEG_LEN) car.mode = 'box';   // stay slow for a while and they close in
+  else if (car.mode === 'cruise' && !bust.gaveUp && bust.slowT > 1.6 && Math.abs(dz) < 40 * SEG_LEN) car.mode = 'box';   // stay slow for a while and they close in
   let want, toff = car.target, lat = 0.35;
   if (car.mode === 'cruise') {
     want = MAX_SPEED * GANG_CRUISE;
@@ -1253,7 +1267,7 @@ function gangDrive(car, dt) {
 function gangBoxed() {                          // a pickup square in front of you, and one beside you (or the road edge)
   const pz = position + PLAYER_Z, L = lenOf('pickup'), half = (L + lenOf('player')) / 2;
   let block = false, pin = 0;
-  for (const c of cars) if (c.gang && !(c.stun > 0)) {
+  for (const c of cars) if (c.gang && !(c.stun > 0) && c.mode !== 'quit') {
     const dz = zDelta(c.z - pz), lat = Math.abs(c.offset - playerX);
     if (dz > 0 && dz < half + L * 1.6 && lat < 0.5) block = true;
     if (Math.abs(dz) < half * 1.5 && lat > 0.15 && lat < 0.95) pin++;
@@ -2269,7 +2283,7 @@ function update(dt) {
     score += dt * speed / 100 * (offroad ? 0.25 : 1);
     if (!ERAS[era].bonus) timeLeft -= dt;
     else {                                                            // WANTED: crawl with a gang truck on you and you're busted
-      const near = cars.some(c => c.gang && Math.abs(zDelta(c.z - (position + PLAYER_Z))) < lenOf('pickup') * 2);
+      const near = cars.some(c => c.gang && c.mode !== 'quit' && Math.abs(zDelta(c.z - (position + PLAYER_Z))) < lenOf('pickup') * 2);
       const boxed = gangBoxed() && speed < MAX_SPEED * BUST_SPEED, stopped = near && speed < MAX_SPEED * 0.05;
       bust.slowT = speed < MAX_SPEED * BOX_SLOW ? (bust.slowT || 0) + dt : 0;
       const prog = lapProgress(), hasGang = cars.some(c => c.gang);
@@ -2277,7 +2291,14 @@ function update(dt) {
         if (!bust.warned && prog > bust.arriveAt - 0.04) { bust.warned = true; toast('THEY\u2019VE FOUND YOU — KEEP YOUR SPEED UP!'); }
         if (prog >= bust.arriveAt) { bust.arriveAt = null; spawnGang(); toast('THERE THEY ARE — WEAVE THROUGH!'); }
       }
-      else if (bust.grace > 0) bust.grace -= dt;
+      const boxing = cars.some(c => c.gang && c.mode === 'box'), lim = gangAttemptLimit();
+      bust.freeT = boxing ? 0 : (bust.freeT || 0) + dt;      // an attempt only ends once you've been clear for a moment
+      if (boxing && !bust.boxing) { bust.boxing = true; bust.attempts = (bust.attempts || 0) + 1;
+        toast(`THEY\u2019RE BOXING YOU IN! (${bust.attempts} OF ${lim}) ${'\u2014'} SPEED UP!`); }
+      else if (bust.boxing && bust.freeT > 1.5) { bust.boxing = false;
+        if (bust.attempts >= lim) gangGiveUp(); else toast(`SHOOK THEM OFF ${'\u2014'} ${lim - bust.attempts} MORE ${lim - bust.attempts === 1 ? 'TRY' : 'TRIES'} AND THEY\u2019LL GIVE UP`); }
+      if (cars.some(c => c.gone)) { for (const c of cars.filter(c => c.gone)) { const i = c.seg.cars.indexOf(c); if (i >= 0) c.seg.cars.splice(i, 1); } cars = cars.filter(c => !c.gone); }
+      if (bust.grace > 0) bust.grace -= dt;
       else if (boxed || stopped) bust.t += dt * (stopped ? 1.5 : 1); else bust.t = Math.max(0, bust.t - dt * 1.2);
       if (bust.t > BUST_TIME) { startBusted(); return; }
     }
