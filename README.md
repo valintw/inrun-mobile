@@ -40,11 +40,13 @@ In the tracker/synth eras the score reacts to the game, in the spirit of LucasAr
 
 ## WANTED bonus lap
 Each era cycle ends with a survival lap in the HD renderer. The clock is frozen and replaced by your lap progress, and a
-gang of black pickup trucks is out for your car. They drive like slow traffic ahead of you, staggered across the lanes,
+gang of black pickup trucks is out for your car. They only catch up with you 75% of the way round the first time —
+then 20% earlier on each later cycle (down to 15%). Once they're out they drive like slow traffic ahead of you, staggered across the lanes,
 drifting into your line as you close in — weave past at speed and they can't touch you. Slow down and the nearby ones
 switch to boxing you in: one gets in front and brake-checks, the others pull alongside. Get boxed in (a pickup in
-front, another beside you or the road edge) at low speed and you're **BUSTED**: they haul you out, bash you with
-baseball caps and drive off in your car (game over). Get back up to speed and you break free. Finish the lap for
+front, another beside you or the road edge) at low speed and you're **BUSTED**: a 3D cutscene plays out where you
+stopped — the gang climb out, haul you onto the tarmac, bash you with baseball caps and wheelspin off in your car
+(game over). Get back up to speed and you break free. Finish the lap for
 +25,000 points and +20 s, and a new, busier cycle starts back in 1987. Start straight in it with `?era=6`.
 
 ## Time bonus & traffic
