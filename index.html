@@ -34,6 +34,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Anton&display=swap&text=MAJORLCENYT" rel="stylesheet">
 <style>
   :root { --pink:#ff3d9a; --cyan:#3df2ff; --yellow:#ffe14d; --orange:#ff8a3d; }
   html, body { margin:0; height:100%; background:#000; overflow:hidden; overscroll-behavior:none;
@@ -45,6 +46,23 @@
     background-image:linear-gradient(rgba(0,0,0,0) 50%, rgba(0,0,0,.55) 50%); transition:opacity .4s; }
   #flash { position:fixed; inset:0; pointer-events:none; z-index:2; background:#fff; opacity:0; }
   #flash.go { animation:flash .9s ease-out; }
+  /* WANTED era title card: a cheeky nod to a certain open-world crime franchise */
+  #larceny { position:fixed; left:50%; top:38%; z-index:8; pointer-events:none; opacity:0; text-align:center; line-height:.86;
+             font-family:Anton, Impact, 'Arial Narrow Bold', sans-serif; color:#fff; text-transform:uppercase; white-space:nowrap;
+             transform:translate(-50%,-50%) rotate(-4deg); -webkit-text-stroke:.05em #000; paint-order:stroke fill;
+             text-shadow:.04em .05em 0 #000, .08em .1em .12em rgba(0,0,0,.55); }
+  #larceny span { display:block; }
+  #larceny .l1 { font-size:clamp(28px,7vw,72px); letter-spacing:.06em; }
+  #larceny .l2 { font-size:clamp(56px,15vw,156px); color:#ffd23f; }
+  #larceny .l3 { font-size:clamp(34px,9vw,92px); letter-spacing:.03em; }
+  #larceny.go { animation:larceny 1.7s ease-out forwards; }
+  @keyframes larceny {
+    0%   { opacity:0; transform:translate(-50%,-50%) rotate(-4deg) scale(2.4); }
+    12%  { opacity:1; transform:translate(-50%,-50%) rotate(-4deg) scale(.94); }
+    20%  { transform:translate(-50%,-50%) rotate(-4deg) scale(1.03); }
+    28%,78% { opacity:1; transform:translate(-50%,-50%) rotate(-4deg) scale(1); }
+    100% { opacity:0; transform:translate(-50%,-50%) rotate(-4deg) scale(1.08); }
+  }
   @keyframes flash { 0% { opacity:.95; } 100% { opacity:0; } }
   /* WANTED bonus era */
   #sirenFx { position:fixed; inset:0; pointer-events:none; z-index:2; opacity:0; }
@@ -149,6 +167,7 @@
 <canvas id="gameHi" style="display:none"></canvas>
 <div id="crt"></div>
 <div id="flash"></div>
+<div id="larceny"><span class="l1">Major</span><span class="l2">Larceny</span><span class="l3">Motorcar</span></div>
 <div id="sirenFx"></div>
 <canvas id="cut"></canvas>
 
@@ -2286,6 +2305,8 @@ function announceEra() {
   f.classList.remove('go'); void f.offsetWidth; f.classList.add('go');
   $('eraTag').innerHTML = E.year + ' &middot; ' + E.name + '<br><span style="font-size:.8em;color:#fff">' + E.sub + '</span>';
   eraTagT = 3.5;
+  const lc = $('larceny'); lc.classList.remove('go');
+  if (E.bonus) { void lc.offsetWidth; lc.classList.add('go'); }
 }
 
 // ---- vehicle lengths (world units): real lengths in the 3D era, sprite-ish depth in the 2D eras ----
