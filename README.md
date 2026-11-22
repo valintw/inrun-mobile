@@ -96,5 +96,6 @@ if the model can't be loaded the game uses its built-in procedural car instead.
 ## ToonCam (`cartoon/index.html`)
 A separate single-file web app: take a photo with the phone camera (or pick one from the gallery) and it is redrawn as a
 cartoon illustration entirely in the browser — edge-preserving smoothing, k-means colour flattening in Lab space and
-difference-of-Gaussians ink lines. Style presets (Toon, Comic, Pop Art, Pastel, Anime, Ink Only), sliders, comic
+difference-of-Gaussians ink lines. In the default vector mode the flat colour areas are merged into clean regions,
+traced, smoothed into Bézier curves and rebuilt as an SVG (saved as .svg or .png). Style presets (Toon, Comic, Pop Art, Pastel, Anime, Ink Only), sliders, comic
 halftone dots, a before/after compare slider and Save/Share. Camera access needs HTTPS or localhost.

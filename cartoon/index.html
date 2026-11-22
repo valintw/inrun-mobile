@@ -32,7 +32,7 @@
   .stage { position: relative; background: #000; border-radius: var(--radius); overflow: hidden;
     aspect-ratio: 3 / 4; width: 100%; max-height: 62dvh; margin: 0 auto; display: flex; align-items: center; justify-content: center; }
   @media (min-aspect-ratio: 1/1) { .stage { aspect-ratio: 4 / 3; } }
-  .stage video, .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .stage video, .stage canvas, .stage img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
   .stage video.mirror { transform: scaleX(-1); }
   #orig { clip-path: inset(0 calc(100% - var(--split, 0%)) 0 0); }
   .split-line { position: absolute; top: 0; bottom: 0; left: var(--split, 0%); width: 2px; background: var(--accent);
@@ -82,6 +82,10 @@
   input[type=range] { width: 100%; accent-color: var(--accent); }
   .check { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; }
   .check input { accent-color: var(--accent); width: 18px; height: 18px; }
+  .seg { display: flex; background: var(--panel-2); border-radius: 999px; padding: 4px; gap: 4px; }
+  .seg button { flex: 1; min-height: 36px; padding: 6px 10px; font-size: 14px; background: transparent; }
+  .seg button.on { background: var(--text); color: var(--bg); }
+  .panel:not(.vector) .vec-only { display: none; }
   .hint { color: var(--muted); font-size: 13px; text-align: center; margin: 0; }
   .err { color: var(--danger); }
 </style>
@@ -101,6 +105,7 @@
   <div class="stage" id="stage">
     <video id="video" playsinline muted autoplay></video>
     <canvas id="result" hidden></canvas>
+    <img id="vec" alt="Cartoon illustration" hidden>
     <canvas id="orig" hidden></canvas>
     <div class="split-line"></div>
     <div class="badge" id="exampleBadge" hidden>Example</div>
@@ -136,11 +141,18 @@
       <svg class="icon" viewBox="0 0 24 24"><path d="M12 3v18M8 7H4v10h4M16 7h4v10h-4"/></svg>Compare
     </button>
     <button id="saveBtn" class="primary">
-      <svg class="icon" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Save
+      <svg class="icon" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Save PNG
+    </button>
+    <button id="saveSvgBtn" class="primary" hidden>
+      <svg class="icon" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Save SVG
     </button>
   </div>
 
-  <div class="panel" id="panel">
+  <div class="panel vector" id="panel">
+    <div class="seg" role="group" aria-label="Drawing mode">
+      <button id="modeVec" class="on">Vector shapes (SVG)</button>
+      <button id="modePix">Painted pixels</button>
+    </div>
     <div class="styles" id="styles"></div>
     <div class="sliders">
       <label class="s">Colours <input type="range" id="colors" min="3" max="20" step="1"><output></output></label>
@@ -149,6 +161,9 @@
       <label class="s">Line detail <input type="range" id="lineDetail" min="0" max="10" step="1"><output></output></label>
       <label class="s">Saturation <input type="range" id="saturation" min="0" max="200" step="5"><output></output></label>
       <label class="s">Brightness <input type="range" id="brightness" min="-40" max="40" step="2"><output></output></label>
+      <label class="s vec-only">Shape size <input type="range" id="regionSize" min="0" max="10" step="1"><output></output></label>
+      <label class="s vec-only">Curviness <input type="range" id="curves" min="0" max="10" step="1"><output></output></label>
+      <label class="s vec-only">Outlines <input type="range" id="outline" min="0" max="5" step="1"><output></output></label>
     </div>
     <div class="bar" style="justify-content:flex-start">
       <label class="check"><input type="checkbox" id="halftone"> Comic halftone dots</label>
@@ -405,7 +420,9 @@ function process(img, w, h, p) {
     }
     label = out;
   }
-  step(0.93);
+  step(0.9);
+
+  if (p.vector) return { svg: buildSvg(label, pal, k, ink, w, h, p, scale) };
 
   // 5. Composite: flat colour + optional halftone shading + ink.
   const out = new Uint8ClampedArray(n * 4);
@@ -434,11 +451,227 @@ function process(img, w, h, p) {
   return out;
 }
 
+// ---------------- Vector (SVG) pipeline ----------------
+
+// Merge connected regions smaller than minArea into their most common neighbouring colour.
+function mergeSmall(label, w, h, k, minArea) {
+  const n = w * h, comp = new Int32Array(n), order = new Int32Array(n), nb = new Uint32Array(k);
+  for (let pass = 0; pass < 3; pass++) {
+    comp.fill(-1);
+    let qEnd = 0, changed = 0;
+    for (let s = 0; s < n; s++) {
+      if (comp[s] !== -1) continue;
+      const L = label[s], start = qEnd;
+      order[qEnd++] = s; comp[s] = start;
+      let head = start;
+      while (head < qEnd) {
+        const c = order[head++], x = c % w;
+        if (x > 0 && comp[c - 1] === -1 && label[c - 1] === L) { comp[c - 1] = start; order[qEnd++] = c - 1; }
+        if (x < w - 1 && comp[c + 1] === -1 && label[c + 1] === L) { comp[c + 1] = start; order[qEnd++] = c + 1; }
+        if (c >= w && comp[c - w] === -1 && label[c - w] === L) { comp[c - w] = start; order[qEnd++] = c - w; }
+        if (c < n - w && comp[c + w] === -1 && label[c + w] === L) { comp[c + w] = start; order[qEnd++] = c + w; }
+      }
+      if (qEnd - start >= minArea) continue;
+      nb.fill(0);
+      for (let i = start; i < qEnd; i++) {
+        const c = order[i], x = c % w;
+        if (x > 0 && label[c - 1] !== L) nb[label[c - 1]]++;
+        if (x < w - 1 && label[c + 1] !== L) nb[label[c + 1]]++;
+        if (c >= w && label[c - w] !== L) nb[label[c - w]]++;
+        if (c < n - w && label[c + w] !== L) nb[label[c + w]]++;
+      }
+      let best = -1, bc = 0;
+      for (let c = 0; c < k; c++) if (nb[c] > bc) { bc = nb[c]; best = c; }
+      if (best < 0) continue;
+      for (let i = start; i < qEnd; i++) label[order[i]] = best;
+      changed++;
+    }
+    if (!changed) break;
+  }
+}
+
+// Trace the pixel-edge outline of every region. Loops run clockwise around their region
+// (positive area); holes run anticlockwise (negative area). Returns corner points only.
+const DX = [1, 0, -1, 0], DY = [0, 1, 0, -1];
+function traceLoops(lab, w, h, only) {
+  const W1 = w + 1;
+  const eKey = [], eDir = [], eLab = [];
+  const head = new Map(); const next = [];
+  const add = (vx, vy, d, L) => {
+    const id = eKey.length, key = vy * W1 + vx;
+    eKey.push(key); eDir.push(d); eLab.push(L);
+    const hk = key * 256 + L;
+    const prev = head.get(hk);
+    next.push(prev === undefined ? -1 : prev);
+    head.set(hk, id);
+  };
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const c = y * w + x, L = lab[c];
+    if (only !== undefined && L !== only) continue;
+    if (y === 0 || lab[c - w] !== L) add(x, y, 0, L);
+    if (x === w - 1 || lab[c + 1] !== L) add(x + 1, y, 1, L);
+    if (y === h - 1 || lab[c + w] !== L) add(x + 1, y + 1, 2, L);
+    if (x === 0 || lab[c - 1] !== L) add(x, y + 1, 3, L);
+  }
+  const used = new Uint8Array(eKey.length);
+  const loops = [];
+  for (let e0 = 0; e0 < eKey.length; e0++) {
+    if (used[e0]) continue;
+    const L = eLab[e0], startKey = eKey[e0];
+    const xs = [], ys = [];
+    let e = e0, prevDir = -1, area = 0;
+    for (;;) {
+      used[e] = 1;
+      const d = eDir[e], k0 = eKey[e];
+      const vx = k0 % W1, vy = (k0 / W1) | 0;
+      if (d !== prevDir) { xs.push(vx); ys.push(vy); }
+      const ex = vx + DX[d], ey = vy + DY[d];
+      area += vx * ey - ex * vy;
+      prevDir = d;
+      const endKey = ey * W1 + ex;
+      if (endKey === startKey) break;
+      // Pick the next edge from this vertex; at a saddle prefer turning right (keeps regions 4-connected).
+      let cand = head.get(endKey * 256 + L), pick = -1;
+      while (cand !== undefined && cand !== -1) {
+        if (!used[cand]) { if (pick === -1 || eDir[cand] === (d + 1) % 4) pick = cand; }
+        cand = next[cand];
+      }
+      if (pick === -1) break;
+      e = pick;
+    }
+    if (xs.length >= 3) loops.push({ label: L, xs, ys, area: area / 2 });
+  }
+  return loops;
+}
+
+// Douglas-Peucker simplification of a closed polygon.
+function simplifyClosed(xs, ys, tol) {
+  const n = xs.length;
+  if (n <= 4 || tol <= 0) return [xs, ys];
+  let far = 0, fd = -1;
+  for (let i = 1; i < n; i++) { const d = (xs[i] - xs[0]) ** 2 + (ys[i] - ys[0]) ** 2; if (d > fd) { fd = d; far = i; } }
+  const keep = new Uint8Array(n); keep[0] = 1; keep[far] = 1;
+  const t2 = tol * tol;
+  const stack = [[0, far], [far, n]];
+  while (stack.length) {
+    const [a, b] = stack.pop();
+    const bx = xs[b % n], by = ys[b % n], ax = xs[a], ay = ys[a];
+    const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy || 1e-9;
+    let mi = -1, md = t2;
+    for (let i = a + 1; i < b; i++) {
+      const cr = (xs[i] - ax) * dy - (ys[i] - ay) * dx;
+      const d = cr * cr / len2;
+      if (d > md) { md = d; mi = i; }
+    }
+    if (mi !== -1) { keep[mi] = 1; stack.push([a, mi], [mi, b]); }
+  }
+  const ox = [], oy = [];
+  for (let i = 0; i < n; i++) if (keep[i]) { ox.push(xs[i]); oy.push(ys[i]); }
+  return [ox, oy];
+}
+
+// Closed Catmull-Rom spline as cubic Beziers; sharp corners (and the image frame) stay crisp.
+const r1 = (v) => Math.round(v * 10) / 10;
+function smoothPath(xs, ys, w, h) {
+  const n = xs.length;
+  if (n < 3) return '';
+  const tx = new Float32Array(n), ty = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const a = (i - 1 + n) % n, b = (i + 1) % n;
+    const v1x = xs[i] - xs[a], v1y = ys[i] - ys[a], v2x = xs[b] - xs[i], v2y = ys[b] - ys[i];
+    const l1 = Math.hypot(v1x, v1y) || 1, l2 = Math.hypot(v2x, v2y) || 1;
+    const cos = (v1x * v2x + v1y * v2y) / (l1 * l2);
+    const onFrame = xs[i] <= 0 || ys[i] <= 0 || xs[i] >= w || ys[i] >= h;
+    if (cos < 0.15 || onFrame) continue; // corner sharper than ~80 degrees: keep it pointed
+    const s = Math.min(l1, l2) / (l1 + l2); // limit tangent length so curves never overshoot
+    tx[i] = (xs[b] - xs[a]) * s * 0.5; ty[i] = (ys[b] - ys[a]) * s * 0.5;
+  }
+  let d = 'M' + r1(xs[0]) + ' ' + r1(ys[0]);
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    d += 'C' + r1(xs[i] + tx[i] * 0.66) + ' ' + r1(ys[i] + ty[i] * 0.66) + ' ' +
+      r1(xs[j] - tx[j] * 0.66) + ' ' + r1(ys[j] - ty[j] * 0.66) + ' ' + r1(xs[j]) + ' ' + r1(ys[j]);
+  }
+  return d + 'Z';
+}
+
+const hex = (r, g, b) => '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+
+function buildSvg(label, pal, k, ink, w, h, p, scale) {
+  const step = (frac) => postMessage({ type: 'progress', value: frac });
+  const minArea = Math.max(4, Math.round((6 + p.regionSize * p.regionSize * 9) * scale * scale));
+  mergeSmall(label, w, h, k, minArea);
+  step(0.93);
+
+  const tol = (0.5 + p.curves * 0.22) * Math.max(1, scale);
+  const loops = traceLoops(label, w, h).filter(l => l.area > 0); // outer outlines only: painted big-to-small
+  loops.sort((a, b) => b.area - a.area);
+  step(0.96);
+
+  const areaBy = new Float64Array(k);
+  for (const l of loops) areaBy[l.label] += l.area;
+  let bg = 0; for (let c = 1; c < k; c++) if (areaBy[c] > areaBy[bg]) bg = c;
+  const col = (c) => hex(pal[c * 3], pal[c * 3 + 1], pal[c * 3 + 2]);
+  const lum = (c) => (0.299 * pal[c * 3] + 0.587 * pal[c * 3 + 1] + 0.114 * pal[c * 3 + 2]) / 255;
+  const INK = '#16121e';
+
+  const parts = [];
+  const cell = Math.max(5, Math.round(6 * scale));
+  parts.push('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + w + ' ' + h + '" width="' + w + '" height="' + h + '">');
+  if (p.halftone) {
+    parts.push('<defs>');
+    for (let lv = 1; lv <= 3; lv++) {
+      parts.push('<pattern id="ht' + lv + '" width="' + cell + '" height="' + cell + '" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">' +
+        '<circle cx="' + cell / 2 + '" cy="' + cell / 2 + '" r="' + r1(cell * (0.14 + lv * 0.1)) + '" fill="#000" fill-opacity="0.28"/></pattern>');
+    }
+    parts.push('</defs>');
+  }
+  parts.push('<rect width="' + w + '" height="' + h + '" fill="' + col(bg) + '"/>');
+  parts.push('<g stroke-linejoin="round" stroke-width="' + r1(1.2 * Math.max(1, scale)) + '">');
+  let outlineD = '', shapes = 0;
+  for (const l of loops) {
+    const [sx, sy] = simplifyClosed(l.xs, l.ys, tol);
+    const d = smoothPath(sx, sy, w, h);
+    if (!d) continue;
+    const c = col(l.label);
+    parts.push('<path d="' + d + '" fill="' + c + '" stroke="' + c + '"/>');
+    if (p.halftone) {
+      const L = lum(l.label);
+      if (L < 0.8) parts.push('<path d="' + d + '" fill="url(#ht' + (L < 0.35 ? 3 : L < 0.6 ? 2 : 1) + ')"/>');
+    }
+    if (p.outline > 0 && l.area < w * h * 0.97) outlineD += d;
+    shapes++;
+  }
+  parts.push('</g>');
+  if (p.outline > 0 && outlineD) {
+    parts.push('<path d="' + outlineD + '" fill="none" stroke="' + INK + '" stroke-width="' + r1(p.outline * 0.9 * Math.max(1, scale)) +
+      '" stroke-linejoin="round" stroke-linecap="round"/>');
+  }
+  // Detail ink lines (eyes, folds, edges inside a colour region), traced as filled shapes with holes.
+  if (p.lineWeight > 0) {
+    const mask = new Uint8Array(w * h);
+    for (let i = 0; i < mask.length; i++) mask[i] = ink[i] > 0.45 ? 1 : 0;
+    mergeSmall(mask, w, h, 2, Math.max(3, Math.round(8 * scale * scale)));
+    const inkLoops = traceLoops(mask, w, h, 1);
+    let inkD = '';
+    for (const l of inkLoops) {
+      if (Math.abs(l.area) < 3 * scale * scale) continue;
+      const [sx, sy] = simplifyClosed(l.xs, l.ys, 0.45 * Math.max(1, scale));
+      inkD += smoothPath(sx, sy, w, h);
+    }
+    if (inkD) parts.push('<path d="' + inkD + '" fill="' + INK + '"/>');
+  }
+  parts.push('</svg>');
+  step(1);
+  return { text: parts.join(''), shapes };
+}
+
 self.onmessage = (e) => {
   const { id, data, w, h, params } = e.data;
   try {
     const out = process({ data }, w, h, params);
-    postMessage({ type: 'done', id, data: out, w, h }, [out.buffer]);
+    if (out.svg) postMessage({ type: 'done', id, svg: out.svg.text, shapes: out.svg.shapes, w, h });
+    else postMessage({ type: 'done', id, data: out, w, h }, [out.buffer]);
   } catch (err) {
     postMessage({ type: 'error', id, message: String(err && err.message || err) });
   }
@@ -453,14 +686,15 @@ const video = $('video'), resultCv = $('result'), origCv = $('orig'), stage = $(
 const msg = $('msg'), busy = $('busy'), progress = $('progress');
 
 const STYLES = {
-  'Toon':     { colors: 9,  smooth: 3, lineWeight: 2, lineDetail: 5, saturation: 130, brightness: 4,  halftone: false },
-  'Comic':    { colors: 7,  smooth: 4, lineWeight: 3, lineDetail: 6, saturation: 145, brightness: 0,  halftone: true  },
-  'Pop Art':  { colors: 5,  smooth: 5, lineWeight: 4, lineDetail: 4, saturation: 190, brightness: 8,  halftone: true  },
-  'Pastel':   { colors: 12, smooth: 4, lineWeight: 1, lineDetail: 3, saturation: 75,  brightness: 18, halftone: false },
-  'Anime':    { colors: 14, smooth: 5, lineWeight: 1, lineDetail: 4, saturation: 120, brightness: 10, halftone: false },
-  'Ink Only': { colors: 3,  smooth: 3, lineWeight: 2, lineDetail: 8, saturation: 0,   brightness: 30, halftone: false },
+  'Toon':     { colors: 9,  smooth: 3, lineWeight: 2, lineDetail: 5, saturation: 130, brightness: 4,  halftone: false, regionSize: 5, curves: 5, outline: 2 },
+  'Comic':    { colors: 7,  smooth: 4, lineWeight: 3, lineDetail: 6, saturation: 145, brightness: 0,  halftone: true,  regionSize: 4, curves: 4, outline: 3 },
+  'Pop Art':  { colors: 5,  smooth: 5, lineWeight: 3, lineDetail: 4, saturation: 190, brightness: 8,  halftone: true,  regionSize: 7, curves: 6, outline: 4 },
+  'Pastel':   { colors: 12, smooth: 4, lineWeight: 1, lineDetail: 3, saturation: 75,  brightness: 18, halftone: false, regionSize: 5, curves: 7, outline: 1 },
+  'Anime':    { colors: 14, smooth: 5, lineWeight: 1, lineDetail: 4, saturation: 120, brightness: 10, halftone: false, regionSize: 3, curves: 4, outline: 1 },
+  'Ink Only': { colors: 3,  smooth: 3, lineWeight: 2, lineDetail: 8, saturation: 0,   brightness: 30, halftone: false, regionSize: 6, curves: 5, outline: 2 },
 };
-const SLIDERS = ['colors', 'smooth', 'lineWeight', 'lineDetail', 'saturation', 'brightness'];
+const SLIDERS = ['colors', 'smooth', 'lineWeight', 'lineDetail', 'saturation', 'brightness', 'regionSize', 'curves', 'outline'];
+let vectorMode = true, svgText = '', svgUrl = '';
 let params = { ...STYLES['Toon'] };
 let currentStyle = 'Toon';
 
@@ -471,10 +705,26 @@ worker.onmessage = (e) => {
   const m = e.data;
   if (m.type === 'progress') { progress.style.width = (m.value * 100).toFixed(0) + '%'; return; }
   pendingJob = false;
-  if (m.type === 'done') {
+  if (m.type === 'done' && m.svg) {
+    svgText = m.svg;
+    if (svgUrl) URL.revokeObjectURL(svgUrl);
+    svgUrl = URL.createObjectURL(new Blob([svgText], { type: 'image/svg+xml' }));
+    const vec = $('vec');
+    vec.onload = () => {
+      // Rasterise at 2x so Save PNG gets crisp curves.
+      resultCv.width = m.w * 2; resultCv.height = m.h * 2;
+      resultCv.getContext('2d').drawImage(vec, 0, 0, m.w * 2, m.h * 2);
+      $('saveBtn').disabled = false; $('saveSvgBtn').disabled = false;
+    };
+    vec.src = svgUrl;
+    vec.hidden = false; resultCv.hidden = true;
+    $('saveSvgBtn').hidden = false;
+    if ($('exampleBadge').hidden) $('hint').textContent = 'Drawn with ' + m.shapes.toLocaleString() + ' vector shapes (' +
+      Math.round(svgText.length / 1024) + ' KB SVG). Tap Compare to see the original.';
+  } else if (m.type === 'done') {
     resultCv.width = m.w; resultCv.height = m.h;
     resultCv.getContext('2d').putImageData(new ImageData(m.data, m.w, m.h), 0, 0);
-    resultCv.hidden = false;
+    resultCv.hidden = false; $('vec').hidden = true; $('saveSvgBtn').hidden = true;
     $('saveBtn').disabled = false;
   } else {
     $('hint').innerHTML = '<span class="err">Something went wrong: ' + m.message + '</span>';
@@ -595,14 +845,14 @@ function render() {
   pendingJob = true;
   progress.style.width = '0%';
   busy.classList.add('on');
-  $('saveBtn').disabled = true;
-  worker.postMessage({ id: ++jobId, data: img.data, w, h, params: { ...params } }, [img.data.buffer]);
+  $('saveBtn').disabled = true; $('saveSvgBtn').disabled = true;
+  worker.postMessage({ id: ++jobId, data: img.data, w, h, params: { ...params, vector: vectorMode } }, [img.data.buffer]);
 }
 
 function retake() {
   if (!camAvailable) { $('captureInput').click(); return; }
   sourceCanvas = null;
-  resultCv.hidden = true; origCv.hidden = true; video.hidden = false;
+  resultCv.hidden = true; origCv.hidden = true; $('vec').hidden = true; video.hidden = false;
   stage.style.aspectRatio = '';
   setCompare(false);
   $('camBar').hidden = false; $('resBar').hidden = true;
@@ -628,24 +878,24 @@ let downloadsApi = null;
 if (window.claude && typeof window.claude.use === 'function') {
   window.claude.use('downloads').then(d => { downloadsApi = d; }).catch(() => {});
 }
-$('saveBtn').onclick = () => {
-  resultCv.toBlob(async (blob) => {
-    const name = 'toon-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.png';
-    if (downloadsApi) {
-      try { await downloadsApi.save({ filename: name, data: blob }); }
-      catch (e) { if (e && e.code !== 'declined') $('hint').textContent = 'Saving is not available in this view.'; }
-      return;
-    }
-    const file = new File([blob], name, { type: 'image/png' });
-    if (navigator.canShare && navigator.canShare({ files: [file] }) && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) {
-      try { await navigator.share({ files: [file], title: 'My cartoon' }); return; } catch (e) { if (e.name === 'AbortError') return; }
-    }
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = name;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-  }, 'image/png');
-};
+async function saveBlob(blob, ext, type) {
+  const name = 'toon-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.' + ext;
+  if (downloadsApi) {
+    try { await downloadsApi.save({ filename: name, data: blob }); }
+    catch (e) { if (e && e.code !== 'declined') $('hint').textContent = 'Saving is not available in this view.'; }
+    return;
+  }
+  const file = new File([blob], name, { type });
+  if (navigator.canShare && navigator.canShare({ files: [file] }) && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) {
+    try { await navigator.share({ files: [file], title: 'My cartoon' }); return; } catch (e) { if (e.name === 'AbortError') return; }
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+$('saveBtn').onclick = () => resultCv.toBlob((blob) => saveBlob(blob, 'png', 'image/png'), 'image/png');
+$('saveSvgBtn').onclick = () => saveBlob(new Blob([svgText], { type: 'image/svg+xml' }), 'svg', 'image/svg+xml');
 
 // ---------- upload ----------
 $('uploadBtn').onclick = () => $('fileInput').click();
@@ -713,6 +963,14 @@ for (const id of SLIDERS) {
 }
 $('halftone').onchange = (e) => { params.halftone = e.target.checked; currentStyle = null; syncControls(); render(); };
 $('hires').onchange = render;
+function setMode(vec) {
+  vectorMode = vec;
+  $('modeVec').classList.toggle('on', vec); $('modePix').classList.toggle('on', !vec);
+  $('panel').classList.toggle('vector', vec);
+  render();
+}
+$('modeVec').onclick = () => setMode(true);
+$('modePix').onclick = () => setMode(false);
 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) stopCamera();
