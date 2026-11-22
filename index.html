@@ -1134,52 +1134,87 @@ function makeCar(R, zFn) {
 const GANG_CI = 10;
 // ---- WANTED bonus era: a gang of pickups works together to box you in ----
 const bust = { t: 0 };
+// The gang drives like slow traffic ahead of you, staggered across the lanes, drifting into your line as you approach.
+// Weave past at speed and they can't touch you. Slow down and the nearby ones switch to boxing you in:
+// one gets in front, the others pull alongside. They never attack from behind (where the chase camera can't show them).
+const GANG_CRUISE = 0.5, GANG_BOX_MAX = 0.7, BOX_SLOW = 0.4, BUST_SPEED = 0.35;
 function spawnGang() {
   removeGang();
-  const pz = position + PLAYER_Z, roles = [['block', -62], ['pinL', -70], ['pinR', -76], ['ram', -84]];   // out of sight behind you
-  roles.forEach(([role, segs], k) => {
-    const z = wrap(pz + segs * SEG_LEN, trackLength), offset = role === 'pinL' ? -0.66 : role === 'pinR' ? 0.66 : (k % 2 ? 0.66 : -0.66);
-    const car = { offset, target: offset, z, ci: GANG_CI, speed: speed, speed0: MAX_SPEED * 0.95, vx: 0, percent: 0, w: SPR_LO.cars[GANG_CI].worldW / ROAD_W, timer: 99, type: 'pickup', gang: true, role };
+  const pz = position + PLAYER_Z;
+  [[55, -2/3], [85, 2/3], [115, 0], [145, -2/3]].forEach(([segs, lane]) => {
+    const z = wrap(pz + segs * SEG_LEN, trackLength);
+    const car = { offset: lane, target: lane, z, ci: GANG_CI, speed: MAX_SPEED * GANG_CRUISE, speed0: MAX_SPEED * GANG_BOX_MAX, vx: 0, percent: 0,
+                  w: SPR_LO.cars[GANG_CI].worldW / ROAD_W, timer: 99, type: 'pickup', gang: true, mode: 'cruise', role: 'cruise' };
     car.seg = findSegment(z); car.seg.cars.push(car); cars.push(car);
   });
-  bust.t = 0; bust.grace = 5;                    // a few seconds to get going before they can bust you
+  bust.t = 0; bust.grace = 3;
 }
-function gangIncoming() {                       // WANTED lap starts: you get a head start before they show up
-  removeGang(); bust.spawnIn = 6;
-  toast('A GANG IS COMING FOR YOUR CAR \u2014 GET GOING!');
+// The gang turns up late in the lap the first time (75% round), and 20% earlier on every later cycle.
+const gangArrivalPoint = () => Math.max(0.15, 0.75 - 0.2 * Math.floor(lap / ERA_CYCLE));
+function gangIncoming() {
+  removeGang(); bust.arriveAt = gangArrivalPoint(); bust.warned = false;
+  toast('A GANG IS HUNTING FOR YOUR CAR — FINISH THE LAP!');
 }
 function removeGang() {
   for (const c of cars.filter(c => c.gang)) { const i = c.seg.cars.indexOf(c); if (i >= 0) c.seg.cars.splice(i, 1); }
-  cars = cars.filter(c => !c.gang); bust.t = 0; bust.spawnIn = 0;
+  cars = cars.filter(c => !c.gang); bust.t = 0; bust.spawnIn = 0; bust.arriveAt = null;
+}
+function assignBoxRoles() {                     // the boxers decide who blocks and who pins, every frame
+  const pz = position + PLAYER_Z, box = cars.filter(c => c.gang && c.mode === 'box').map(c => ({ c, dz: zDelta(c.z - pz) })).sort((a, b) => b.dz - a.dz);
+  let leftUsed = playerX - 0.55 < -0.92, rightUsed = playerX + 0.55 > 0.92;
+  box.forEach(({ c }, k) => {
+    if (k === 0) c.role = 'block';
+    else if (!leftUsed && (c.offset <= playerX || rightUsed)) { c.role = 'pinL'; leftUsed = true; }
+    else if (!rightUsed) { c.role = 'pinR'; rightUsed = true; }
+    else c.role = 'escort';                     // spare: hangs a little way ahead in another lane
+  });
 }
 function gangDrive(car, dt) {
   const pz = position + PLAYER_Z, L = lenOf('pickup'), half = (L + lenOf('player')) / 2, dz = zDelta(car.z - pz);
-  let role = car.role, toff = playerX, tz = 0;
-  if (role === 'pinL' && playerX - 0.55 < -0.92) role = 'ram';        // no room to pin on that side: come from behind
-  if (role === 'pinR' && playerX + 0.55 > 0.92) role = 'ram';
-  if (role === 'block') tz = half + L * 0.6;                          // sit just in front of you...
-  else if (role === 'pinL') toff = playerX - 0.55;                    // ...one on each side...
-  else if (role === 'pinR') toff = playerX + 0.55;
-  else {                                                              // ...and one lurking in the next lane that swerves into you
-    if (!car.side || Math.abs(playerX + car.side * 0.6) > 0.95) car.side = playerX > 0 ? -1 : 1;
-    tz = -half * 0.55; toff = playerX + car.side * 0.6;
-    car.swerveT = (car.swerveT ?? 3) - dt;
-    if (car.swerveT < 0) { toff = playerX; if (car.swerveT < -0.8) car.swerveT = 2.5 + Math.random() * 2; }
+  if (dz < -45 * SEG_LEN) {                     // left far behind: it turns up again further ahead, as fresh "traffic"
+    car.z = wrap(pz + (95 + Math.random() * 60) * SEG_LEN, trackLength);
+    car.offset = car.target = LANES3[Math.floor(Math.random() * 3)]; car.speed = MAX_SPEED * GANG_CRUISE; car.mode = car.role = 'cruise';
+    return;
   }
-  const vmax = dz < -35 * SEG_LEN ? MAX_SPEED * 1.1 : MAX_SPEED * 0.95;   // they catch up if left behind, but flat out you're quicker
-  let want = speed + (tz - dz) * 2.2;
-  if (role === 'block' && dz > 0 && dz < half + L && Math.abs(car.offset - playerX) < 0.3) want = Math.min(want, speed * 0.8);   // brake-check
-  car.speed = clamp(car.speed + clamp(want - car.speed, -MAX_SPEED * 1.4 * dt, MAX_SPEED * 0.55 * dt), 0, vmax);
-  // pinners hold the next lane until they're alongside, then squeeze in
-  const alongside = Math.abs(dz) < half * 1.5;
-  car.target = clamp(role.startsWith('pin') && !alongside ? toff + (role === 'pinL' ? -0.15 : 0.15) : toff, -0.95, 0.95);
-  car.offset = clamp(car.offset + clamp(car.target - car.offset, -0.9 * dt, 0.9 * dt) + car.vx * dt, -0.95, 0.95);
+  if (car.mode === 'box' && speed > MAX_SPEED * 0.62) car.mode = car.role = 'cruise';                // you broke free
+  else if (car.mode === 'cruise' && bust.slowT > 0.8 && Math.abs(dz) < 45 * SEG_LEN) car.mode = 'box';   // stay slow and they close in (a quick bump is forgiven)
+  let want, toff = car.target, lat = 0.35;
+  if (car.mode === 'cruise') {
+    want = MAX_SPEED * GANG_CRUISE;
+    if (dz > 0 && (speed < MAX_SPEED * BOX_SLOW || dz > 160 * SEG_LEN)) want = Math.min(want, speed * 0.5);   // slow down and they drop back to you
+    if (dz > half && dz < 30 * SEG_LEN) toff = clamp(playerX, -0.8, 0.8);          // drift across to block your line (dodgeable)
+  } else {
+    let tz = 0; toff = playerX; lat = 0.9;
+    if (car.role === 'block') tz = half + L * 0.5;
+    else if (car.role === 'pinL') toff = playerX - 0.55;
+    else if (car.role === 'pinR') toff = playerX + 0.55;
+    else { tz = half + L * 2.5; toff = playerX + (playerX > 0 ? -0.6 : 0.6); }
+    want = speed + (tz - dz) * 2.2;
+    if (car.role === 'block' && dz > 0 && dz < half + L && Math.abs(car.offset - playerX) < 0.3) want = Math.min(want, speed * 0.85);   // brake-check
+    if (car.role.startsWith('pin') && Math.abs(dz) > half * 1.5) toff += car.role === 'pinL' ? -0.15 : 0.15;   // hold the next lane until alongside
+  }
+  car.speed = clamp(car.speed + clamp(want - car.speed, -MAX_SPEED * 1.2 * dt, MAX_SPEED * 0.45 * dt), 0, MAX_SPEED * GANG_BOX_MAX);
+  car.target = clamp(toff, -0.95, 0.95);
+  car.offset = clamp(car.offset + clamp(car.target - car.offset, -lat * dt, lat * dt) + car.vx * dt, -0.95, 0.95);
   car.vx *= Math.exp(-dt * 4);
   car.z = wrap(car.z + dt * car.speed, trackLength);
 }
-function gangNearness() {                    // 0..1, how close the nearest gang truck is
+function gangBoxed() {                          // a pickup square in front of you, and one beside you (or the road edge)
+  const pz = position + PLAYER_Z, L = lenOf('pickup'), half = (L + lenOf('player')) / 2;
+  let block = false, pin = 0;
+  for (const c of cars) if (c.gang) {
+    const dz = zDelta(c.z - pz), lat = Math.abs(c.offset - playerX);
+    if (dz > 0 && dz < half + L * 1.6 && lat < 0.5) block = true;
+    if (Math.abs(dz) < half * 1.5 && lat > 0.15 && lat < 0.95) pin++;
+  }
+  return block && (pin > 0 || Math.abs(playerX) > 0.7);
+}
+function gangNearness() {                    // 0..1: how hard the gang is pressing you (boxers count most)
   let best = 0; const pz = position + PLAYER_Z;
-  for (const c of cars) if (c.gang) best = Math.max(best, 1 - Math.min(1, Math.abs(zDelta(c.z - pz)) / (60 * SEG_LEN)));
+  for (const c of cars) if (c.gang) {
+    const d = Math.abs(zDelta(c.z - pz)) / SEG_LEN;
+    best = Math.max(best, c.mode === 'box' ? 1 - Math.min(1, d / 40) : 0.5 * (1 - Math.min(1, d / 30)));
+  }
   return best;
 }
 function raiseTraffic() {                               // called when a full era cycle completes
@@ -2128,11 +2163,17 @@ function update(dt) {
     score += dt * speed / 100 * (offroad ? 0.25 : 1);
     if (!ERAS[era].bonus) timeLeft -= dt;
     else {                                                            // WANTED: crawl with a gang truck on you and you're busted
-      const near = cars.some(c => c.gang && Math.abs(zDelta(c.z - (position + PLAYER_Z))) < lenOf('pickup') * 2.5);
-      if (bust.spawnIn > 0) { bust.spawnIn -= dt; if (bust.spawnIn <= 0) { spawnGang(); toast('HERE THEY COME!'); } }
+      const near = cars.some(c => c.gang && Math.abs(zDelta(c.z - (position + PLAYER_Z))) < lenOf('pickup') * 2);
+      const boxed = gangBoxed() && speed < MAX_SPEED * BUST_SPEED, stopped = near && speed < MAX_SPEED * 0.05;
+      bust.slowT = speed < MAX_SPEED * BOX_SLOW ? (bust.slowT || 0) + dt : 0;
+      const prog = position / trackLength, hasGang = cars.some(c => c.gang);
+      if (!hasGang && bust.arriveAt != null) {
+        if (!bust.warned && prog > bust.arriveAt - 0.04) { bust.warned = true; toast('THEY\u2019VE FOUND YOU — KEEP YOUR SPEED UP!'); }
+        if (prog >= bust.arriveAt) { bust.arriveAt = null; spawnGang(); toast('THERE THEY ARE — WEAVE THROUGH!'); }
+      }
       else if (bust.grace > 0) bust.grace -= dt;
-      else if (near && speed < MAX_SPEED * 0.12) bust.t += dt; else bust.t = Math.max(0, bust.t - dt * 1.5);
-      if (bust.t > 1.4) { startBusted(); return; }
+      else if (boxed || stopped) bust.t += dt * (stopped ? 1.5 : 1); else bust.t = Math.max(0, bust.t - dt * 0.6);
+      if (bust.t > 1.6) { startBusted(); return; }
     }
     if (timeLeft <= 0) { timeLeft = 0; state = 'over'; setMsg('TIME UP', ''); msgTimer = 99; }
   } else if (speed <= 0) { endGame(); }
@@ -2210,6 +2251,7 @@ function laneFree(car, lane) {
 }
 function updateCars(dt) {
   const LOOK = 30 * SEG_LEN, pz = position + PLAYER_Z, Lp = lenOf('player');
+  assignBoxRoles();
   for (const car of cars) {
     if (car.gang) { gangDrive(car, dt); continue; }
     const L = lenOf(car.type);
@@ -3467,7 +3509,7 @@ function build3D(T, A) {
         if (cm.n >= 60) continue;
         const lm = car.offset * ROAD_W * M3;
         const x = p.x + Math.cos(p.h) * lm, z = p.z + Math.sin(p.h) * lm;
-        if ((x - camera.position.x) ** 2 + (z - camera.position.z) ** 2 < 30) continue;   // never draw a vehicle around the camera
+        if (!CUT.active && (x - camera.position.x) ** 2 + (z - camera.position.z) ** 2 < 30) continue;   // never draw a vehicle around the camera
         const half = (ty === 'truck' ? 3.6 : 2.3) / SEG_M;              // slope measured over the car's own length
         const pitch = Math.atan2(at(d + half).y - at(d - half).y, 2 * half * SEG_M);
         place(cm.bodyIM, cm.n, x, (at(d + half).y + at(d - half).y) / 2, z, -p.h, 1, pitch); cm.detIM.setMatrixAt(cm.n, mtx);
@@ -3480,6 +3522,8 @@ function build3D(T, A) {
       cm.bodyIM.instanceMatrix.needsUpdate = cm.detIM.instanceMatrix.needsUpdate = true;
       if (cm.bodyIM.instanceColor) cm.bodyIM.instanceColor.needsUpdate = true;
     }
+    if (CUT.active) CUT.tick(Math.min(0.05, (performance.now() - (CUT.lastNow || performance.now())) / 1000));
+    CUT.lastNow = performance.now(); R3.lastPd = pd; R3.lastH = pc.h; R3.lastLat = lat;
     composer.render();
   }
 
@@ -3488,6 +3532,127 @@ function build3D(T, A) {
     renderer.setPixelRatio(pr); renderer.setSize(w, h, false);
     composer.setPixelRatio(pr); composer.setSize(w, h);
     bloom.resolution.set(w * pr / 2, h * pr / 2);
+  }
+  // ---------- BUSTED cutscene, played out in the 3D scene ----------
+  const CUT = R3.cut = { active: false, t: 0, scr: {} };
+  {
+    const M = c => new T.MeshStandardMaterial({ color: c, roughness: 0.75 });
+    const capGeo = new T.SphereGeometry(0.135, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2), brimGeo = new T.BoxGeometry(0.2, 0.018, 0.14);
+    const cyl = (r, l) => new T.CylinderGeometry(r, r * 0.85, l, 8).translate(0, -l / 2, 0);
+    function makeCap(col) { const g = new T.Group(), m = M(col); const d = new T.Mesh(capGeo, m), b = new T.Mesh(brimGeo, m); b.position.set(0, 0.01, -0.15); g.add(d, b); return g; }
+    function makePerson(shirt, pants, skin, capCol, handCap) {
+      const root = new T.Group(), g = new T.Group(); root.add(g);
+      const mS = M(shirt), mP = M(pants), mK = M(skin);
+      const add = (o, x, y, z, p = g) => { o.position.set(x, y, z); o.castShadow = true; p.add(o); return o; };
+      const torso = add(new T.Mesh(new T.CapsuleGeometry(0.19, 0.4, 4, 10), mS), 0, 1.2, 0); torso.scale.set(1.2, 1, 0.72);
+      add(new T.Mesh(new T.CylinderGeometry(0.06, 0.07, 0.1, 8), mK), 0, 1.55, 0);
+      add(new T.Mesh(new T.SphereGeometry(0.125, 14, 10), mK), 0, 1.68, 0);
+      if (capCol != null) add(makeCap(capCol), 0, 1.72, 0);
+      const limb = (x, y, l, r, m, hand) => { const p = add(new T.Group(), x, y, 0); add(new T.Mesh(cyl(r, l), m), 0, 0, 0, p); if (hand) add(new T.Mesh(new T.SphereGeometry(r * 1.15, 8, 6), mK), 0, -l - 0.03, 0, p); return p; };
+      const armL = limb(-0.3, 1.46, 0.58, 0.055, mS, true), armR = limb(0.3, 1.46, 0.58, 0.055, mS, true);
+      const legL = limb(-0.11, 0.9, 0.88, 0.08, mP), legR = limb(0.11, 0.9, 0.88, 0.08, mP);
+      if (handCap) { const c = add(makeCap(0x2a6bd6), 0, -0.66, -0.05, armR); c.rotation.x = Math.PI / 2; c.scale.setScalar(1.25); }
+      root.userData = { g, armL, armR, legL, legR };
+      return root;
+    }
+    const cutRoot = new T.Group(); cutRoot.visible = false; scene.add(cutRoot);
+    const thugs = [makePerson(0x22252b, 0x15171c, 0xc89a74, 0xd6332b, true), makePerson(0x3b2a20, 0x1b1f2a, 0x8a5a3c, 0x111111, true),
+                   makePerson(0x1d2a1d, 0x202020, 0xe0b48e, 0xf0c020, false)];
+    const driver = makePerson(0xf2f2f2, 0x2c4a7a, 0xe8c39e, null, false);
+    thugs.forEach(p => cutRoot.add(p)); cutRoot.add(driver);
+    // tyre smoke
+    const sc = document.createElement('canvas'); sc.width = sc.height = 64;
+    { const c = sc.getContext('2d'), gr = c.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(235,235,235,.9)'); gr.addColorStop(1, 'rgba(235,235,235,0)'); c.fillStyle = gr; c.fillRect(0, 0, 64, 64); }
+    const smokeTex = new T.CanvasTexture(sc);
+    const puffs = Array.from({ length: 18 }, () => { const s = new T.Sprite(new T.SpriteMaterial({ map: smokeTex, transparent: true, depthWrite: false, opacity: 0 })); s.visible = false; scene.add(s); return { s, age: 9 }; });
+    let nextPuff = 0, puffT = 0;
+    const V = (x, y, z) => new T.Vector3(x, y, z);
+    const camFrom = new T.Vector3(), lookFrom = new T.Vector3(), tmp = new T.Vector3(), tmp2 = new T.Vector3(), tmp3 = new T.Vector3();
+    let h0 = 0, pd0 = 0, lat0 = 0, carY0 = 0;
+    const smooth = x => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+    const face = (p, x, z) => { const dx = x - p.position.x, dz = z - p.position.z; if (dx * dx + dz * dz > 1e-4) p.rotation.y = Math.atan2(-dx, -dz); };
+    function walk(p, from, to, t0, t1, t, look) {           // walk between two points (car-local), legs swinging
+      const u = clamp((t - t0) / (t1 - t0), 0, 1), d = p.userData;
+      p.position.set(lerp(from[0], to[0], u), 0, lerp(from[1], to[1], u));
+      const moving = u > 0 && u < 1, ph = t * 11;
+      d.legL.rotation.x = moving ? Math.sin(ph) * 0.6 : 0; d.legR.rotation.x = -d.legL.rotation.x;
+      d.armL.rotation.x = moving ? -Math.sin(ph) * 0.5 : 0; d.armR.rotation.x = -d.armL.rotation.x;
+      if (moving) face(p, to[0], to[1]); else if (look) face(p, look[0], look[1]);
+      return moving;
+    }
+    CUT.start = (pd, h, lat) => {
+      CUT.active = true; CUT.t = 0; pd0 = pd; h0 = h; lat0 = lat;
+      cutRoot.position.copy(player.position); carY0 = player.position.y; cutRoot.rotation.set(0, -h, 0); cutRoot.visible = true;
+      camFrom.copy(camera.position); camera.getWorldDirection(lookFrom); lookFrom.multiplyScalar(15).add(camera.position);
+      thugs.forEach(p => { p.visible = true; p.position.set(-4.3, 0, 5); p.userData.g.rotation.set(0, 0, 0); });
+      driver.visible = false; driver.userData.g.rotation.set(0, 0, 0); driver.userData.g.position.set(0, 0, 0);
+      puffs.forEach(p => { p.age = 9; p.s.visible = false; }); puffT = 0;
+    };
+    CUT.stop = () => { CUT.active = false; cutRoot.visible = false; puffs.forEach(p => { p.s.visible = false; }); };
+    CUT.tick = (dt) => {                                      // called at the end of render3D while the cutscene runs
+      const t = CUT.t, [A, B, C] = thugs, DL = [-2.5, 0.5];   // DL: where the driver lands (car-local x,z)
+      // thug C: walks to the door, hauls the driver out, then climbs in and drives off
+      walk(C, [-4.3, 5], [-1.45, -0.15], 0.15, 1.15, t, [-0.6, 0]);
+      if (t > 1.15 && t < 1.75) { C.userData.armL.rotation.x = C.userData.armR.rotation.x = 1.4 - Math.sin((t - 1.15) * 9) * 0.3; }
+      if (t > 2.3) walk(C, [-1.45, -0.15], [-0.75, 0.05], 2.3, 2.75, t);
+      C.visible = t < 2.75;
+      // A and B jog up and beat the driver with their caps
+      const hitA = t > 1.85 && t < 3.6, hitB = t > 2.0 && t < 3.6;
+      walk(A, [-4.3, 5], [-3.25, -0.35], 0.35, 1.6, t, DL);
+      walk(B, [-4.6, 5.6], [-1.75, 1.45], 0.55, 1.75, t, DL);
+      if (hitA) { A.userData.armR.rotation.x = 1.9 + Math.cos((t - 1.85) * 13) * 1.1; A.userData.armR.rotation.z = 0.25; } else A.userData.armR.rotation.z = 0;
+      if (hitB) { B.userData.armR.rotation.x = 1.9 + Math.cos((t - 2.0) * 12 + 1.2) * 1.1; B.userData.armR.rotation.z = 0.25; } else B.userData.armR.rotation.z = 0;
+      if (t > 3.6) for (const p of [A, B]) { p.userData.armL.rotation.x = p.userData.armR.rotation.x = 2.9 + Math.sin(t * 9) * 0.25; p.userData.armL.rotation.z = -0.3; face(p, 0, -12 - (t - 3.6) * 8); }  // cheering
+      else for (const p of [A, B]) p.userData.armL.rotation.z = 0;
+      // the driver: out of the door, through the air, flat on the tarmac
+      driver.visible = t > 1.3;
+      if (driver.visible) {
+        const u = smooth((t - 1.3) / 0.5), dg = driver.userData.g;
+        driver.position.set(lerp(-0.55, DL[0], u), Math.sin(u * Math.PI) * 0.7 + (1 - u) * 0.25, lerp(0, DL[1], u));
+        driver.rotation.y = -Math.PI / 2 + 0.4;
+        const fall = smooth((t - 1.6) / 0.35);
+        dg.rotation.x = -Math.PI / 2 * fall; dg.position.y = 0.2 * fall;
+        const flail = t < 1.9 ? Math.sin(t * 25) * 0.8 : Math.sin(t * 4) * 0.15 * (t < 3.6 ? 1 : 0.3);
+        driver.userData.armL.rotation.x = 2 + flail; driver.userData.armR.rotation.x = 2 - flail;
+        driver.userData.legL.rotation.x = flail * 0.4; driver.userData.legR.rotation.x = -flail * 0.4;
+      }
+      // the car: wheelspin, smoke, gone
+      const go = Math.max(0, t - 3.05), drive = 0.5 * 14 * go * go;
+      if (t > 2.9) {
+        const q2 = at(pd0 + drive / SEG_M);
+        player.position.set(q2.x + Math.cos(q2.h) * lat0, q2.y, q2.z + Math.sin(q2.h) * lat0);
+        player.rotation.set(0, -q2.h + Math.sin(t * 30) * 0.02 * clamp(1.6 - go, 0, 1), 0);
+        for (const w of R3.wheels) w.rotation.x -= dt * 60 * (R3.wheelSign || 1);
+        R3.playerTail.emissiveIntensity = 3;
+        puffT -= dt;
+        if (go < 1.8 && puffT <= 0) {
+          puffT = 0.05;
+          for (const sx of [-0.8, 0.8]) { const p = puffs[nextPuff++ % puffs.length]; p.age = 0; p.s.visible = true;
+            p.s.position.set(sx, 0.35, 1.35).applyMatrix4(player.matrixWorld); p.vx = (Math.random() - 0.5) * 1.2; p.vz = Math.random() * 0.8; }
+        }
+      }
+      for (const p of puffs) if (p.s.visible) {
+        p.age += dt; const k = p.age / 1.4;
+        if (k >= 1) { p.s.visible = false; continue; }
+        p.s.position.x += p.vx * dt; p.s.position.z += p.vz * dt; p.s.position.y += dt * 0.6;
+        p.s.scale.setScalar(0.8 + k * 3.5); p.s.material.opacity = 0.75 * (1 - k);
+      }
+      // camera: swing round from the chase cam to a low three-quarter view of the driver's door
+      cutRoot.updateMatrixWorld();
+      const sw = smooth(t / 0.9);
+      const camTo = cutRoot.localToWorld(tmp.set(-7.4, 2.1, -5.2)), lookTo = cutRoot.localToWorld(tmp2.set(-1.9, 0.75, 0.6));
+      if (t > 3.05) lookTo.add(tmp3.subVectors(player.position, lookTo).clampLength(0, 4.5).multiplyScalar(smooth((t - 3.05) / 1.2)));
+      camera.position.lerpVectors(camFrom, camTo, sw);
+      if (t > 0.9) camera.position.y += Math.sin(t * 1.3) * 0.05;
+      camera.lookAt(tmp.lerpVectors(lookFrom, lookTo, sw));
+      const asp = window.innerWidth / window.innerHeight;
+      camera.fov = asp >= 1 ? 46 : 68; camera.aspect = asp; camera.updateProjectionMatrix();
+      // screen-space anchors for the comic overlay (0..1)
+      camera.updateMatrixWorld();
+      const proj = v => { v.project(camera); return { x: (v.x + 1) / 2, y: (1 - v.y) / 2, ok: v.z < 1 }; };
+      CUT.scr.driver = proj(cutRoot.localToWorld(tmp.set(DL[0] - 0.2, 0.9, DL[1])));
+      CUT.scr.head = proj(cutRoot.localToWorld(tmp.set(DL[0], 0.35, DL[1] + 1.4)));
+    };
   }
   Object.assign(R3, { canvas, render3D, setSize });
 }
@@ -3511,7 +3676,7 @@ function updateHUD() {
   setText($('timeLbl'), 'tl', wanted ? 'SURVIVE' : 'TIME');
   setText(hud.time, 't', wanted ? Math.floor(position / trackLength * 100) + '%' : String(Math.ceil(timeLeft)));
   const bx = $('boxed'); bx.style.display = wanted && bust.t > 0.05 && state === 'race' ? 'block' : 'none';
-  if (bust.t > 0.05) bx.querySelector('i').style.width = Math.min(100, bust.t / 1.4 * 100) + '%';
+  if (bust.t > 0.05) bx.querySelector('i').style.width = Math.min(100, bust.t / 1.6 * 100) + '%';
   const fx = $('sirenFx'), near = wanted && state === 'race' ? gangNearness() : 0;
   fx.style.opacity = (near * (0.75 + 0.25 * Math.sin(performance.now() / 180))).toFixed(2);   // red danger glow, pulsing
   hud.time.classList.toggle('low', timeLeft < 10 && state === 'race');
@@ -3595,6 +3760,7 @@ function allowSleep() {
 document.addEventListener('visibilitychange', () => { if (!document.hidden && awake.want) keepAwake(); });
 
 async function startGame() {
+  if (R3.cut && R3.cut.stop) R3.cut.stop();
   initAudio();
   const needsPerm = typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function';
   if (!needsPerm) goFullscreen();
@@ -3645,6 +3811,50 @@ function startBusted() {
   $('boxed').style.display = 'none'; $('sirenFx').style.opacity = 0;
   cutCv.width = Math.round(window.innerWidth * Math.min(2, window.devicePixelRatio || 1)); cutCv.height = Math.round(window.innerHeight * Math.min(2, window.devicePixelRatio || 1));
   cutCv.style.display = 'block'; sfxScreech();
+  setHUD(false); $('toast').style.opacity = 0; $('eraTag').innerHTML = '';
+  cut3D = !!(R3.active && R3.cut && R3.cut.start && R3.lastPd != null);
+  if (cut3D) { gangTableau(); R3.cut.start(R3.lastPd, R3.lastH, R3.lastLat); }
+}
+let cut3D = false;
+function gangTableau() {                                 // park the pickups round the car for the cutscene
+  const pz = position + PLAYER_Z, m = 1 / M3, L = 1 / (ROAD_W * M3);
+  const spots = [[10, 0.6], [-4.5, -0.95], [1, 0.95], [-13, 0.1]];
+  cars.filter(c => c.gang).forEach((c, k) => {
+    const [dz, dx] = spots[k % spots.length];
+    const i = c.seg.cars.indexOf(c); if (i >= 0) c.seg.cars.splice(i, 1);
+    c.z = wrap(pz + dz * m, trackLength); c.offset = clamp(playerX + dx * 5 * L, -1.7, 1.7); c.speed = 0;
+    c.seg = findSegment(c.z); c.seg.cars.push(c);
+  });
+}
+function drawCut3D(dt) {                                 // comic overlay on top of the live 3D scene
+  cutT += dt; R3.cut.t = cutT;
+  const c = cutCtx, w = cutCv.width, h = cutCv.height, t = cutT, S = R3.cut.scr;
+  c.clearRect(0, 0, w, h);
+  const bar = h * 0.11 * Math.min(1, t / 0.5);
+  c.fillStyle = '#000'; c.fillRect(0, 0, w, bar); c.fillRect(0, h - bar, w, bar);
+  const r = Math.min(w, h) * 0.085;
+  const hits = [[1.95, 'THWAP!', '#ffe14d'], [2.3, 'BONK!', '#ff8a3d'], [2.62, 'WHUMP!', '#3df2ff'], [2.95, 'POW!', '#ff3d9a'], [3.3, 'SMACK!', '#9dff3d']];
+  hits.forEach(([ht, txt, col], k) => {
+    if (S.driver && S.driver.ok && t > ht && t < ht + 0.5) {
+      const sc = 1 + Math.min(1, (t - ht) * 6) * 0.15;
+      burst(c, S.driver.x * w + (k % 2 ? 1 : -1) * r * 1.3, S.driver.y * h - r * (1.1 + (k % 3) * 0.35), r * sc, txt, col);
+    }
+    if (t > ht && cutHits <= k) { cutHits = k + 1; sfxThwap(); }
+  });
+  if (t > 3.05 && cutHits < 6) { cutHits = 6; sfxVroom(); sfxScreech(); }
+  if (S.head && S.head.ok && t > 2.0) for (let k = 0; k < 3; k++) {            // dizzy stars
+    const a = t * 5 + k * 2.1; c.fillStyle = '#ffe14d'; c.font = `bold ${Math.round(r * 0.5)}px sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillText('\u2605', S.head.x * w + Math.cos(a) * r * 0.6, S.head.y * h + Math.sin(a) * r * 0.2);
+  }
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  const st = Math.min(1, t / 0.25);
+  c.save(); c.translate(w / 2, h * 0.24); c.rotate(-0.06); c.scale(3 - st * 2, 3 - st * 2);
+  c.fillStyle = '#ff2a2a'; c.strokeStyle = '#000'; c.lineWidth = h * 0.012; c.font = `bold ${Math.round(h * 0.13)}px Impact, 'Arial Black', sans-serif`;
+  c.strokeText('BUSTED!', 0, 0); c.fillText('BUSTED!', 0, 0); c.restore();
+  if (t > 3.9) { c.fillStyle = '#fff'; c.strokeStyle = '#000'; c.lineWidth = h * 0.008; c.font = `bold ${Math.round(h * 0.06)}px Impact, 'Arial Black', sans-serif`;
+    c.strokeText('THEY TOOK YOUR CAR!', w / 2, h * 0.8); c.fillText('THEY TOOK YOUR CAR!', w / 2, h * 0.8); }
+  if (t > 5.0) { c.fillStyle = `rgba(0,0,0,${Math.min(1, (t - 5.0) / 0.5)})`; c.fillRect(0, 0, w, h); }
+  if (t > 5.6) { R3.cut.stop(); cutCv.style.display = 'none'; cutT = -1; endGame(true); }
 }
 function drawThug(c, x, gy, s, swing, face) {          // a silhouette in a baseball cap, swinging a cap
   c.save(); c.translate(x, gy); c.scale(face, 1);
@@ -3759,7 +3969,7 @@ function frame(now) {
     titleT += dt;
     if (titleT > 3.5) { titleT = 0; setEra((era + 1) % (N_ERAS - 1)); const E = ERAS[era]; $('titleEra').innerHTML = E.year + ' ' + E.name; }
   }
-  else if (state === 'busted') { if (cutT >= 0) drawCut(dt); }
+  else if (state === 'busted') { if (cutT >= 0) (cut3D ? drawCut3D : drawCut)(dt); }
   else if (state !== 'paused' && state !== 'gameover') {
     acc += dt;
     while (acc >= STEP) { update(STEP); acc -= STEP; }
