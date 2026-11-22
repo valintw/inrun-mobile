@@ -1901,10 +1901,12 @@ function rigGUS(hd) {
 // alternating <audio> players. When the current track is half played, the other player starts loading
 // the next (random, never the same track twice running); when the track ends, the next one takes over.
 function makeJukebox(a) {
-  const J = { list: null, loading: null, players: [], cur: 0, last: -1, failed: false, ready: [false, false], nextPrimed: false, wantPlay: false };
+  const J = { list: null, loading: null, players: [], filters: [], cur: 0, last: -1, failed: false, ready: [false, false], nextPrimed: false, wantPlay: false };
   for (let i = 0; i < 2; i++) {
     const el = new Audio(); el.preload = 'none'; el.crossOrigin = 'anonymous';
-    try { const src = a.createMediaElementSource(el), g = a.createGain(); g.gain.value = 0.55; src.connect(g); g.connect(audio.master); } catch (e) { J.failed = true; }
+    el.preservesPitch = el.mozPreservesPitch = el.webkitPreservesPitch = false;
+    try { const src = a.createMediaElementSource(el), f = a.createBiquadFilter(), g = a.createGain(); f.type = 'lowpass'; f.frequency.value = 20000; g.gain.value = 0.55;
+          src.connect(f); f.connect(g); g.connect(audio.master); J.filters[i] = f; } catch (e) { J.failed = true; }
     el.addEventListener('canplay', () => { J.ready[i] = true; });
     el.addEventListener('error', () => { J.ready[i] = false; if (el.dataset.idx) J.bad.add(+el.dataset.idx); if (i === J.cur) J.skip(); });
     el.addEventListener('timeupdate', () => {
@@ -1954,6 +1956,19 @@ function makeJukebox(a) {
     if (playing && el.paused) el.play().catch(() => {});
     if (!playing && !el.paused) el.pause();
   };
+  // a crash: the track sags about a semitone and goes dull for a few seconds, then recovers
+  J.slumpT = 0;
+  J.slump = (secs) => {
+    const t0 = performance.now(), sag = 0.945, now = a.currentTime;
+    J.filters.forEach(f => { if (!f) return; f.frequency.cancelScheduledValues(now); f.frequency.setTargetAtTime(1600, now, 0.08); f.frequency.setTargetAtTime(20000, now + secs - 0.4, 0.25); });
+    clearInterval(J.slumpT);
+    J.slumpT = setInterval(() => {
+      const e = (performance.now() - t0) / 1000;
+      const r = e < 0.3 ? 1 - (1 - sag) * e / 0.3 : e < secs - 0.6 ? sag : e < secs ? sag + (1 - sag) * (e - secs + 0.6) / 0.6 : 1;
+      J.players.forEach(el => { el.playbackRate = r; });
+      if (e >= secs) clearInterval(J.slumpT);
+    }, 40);
+  };
   J.stop = () => { J.wantPlay = false; J.players.forEach(el => { if (!el.paused) el.pause(); }); };
   return J;
 }
@@ -1964,6 +1979,7 @@ function rigHD() {
   return Object.assign({}, sfx, {
     music(ev, t) { if (!(m && m.ok())) sfx.music(ev, t); },        // synthesised score until a track is ready
     stream(playing) { if (m) m.stream(playing); },
+    slump(secs) { if (m && m.ok()) m.slump(secs); },
     teardown() { if (m) m.stop(); sfx.teardown(); }
   });
 }
@@ -1973,8 +1989,17 @@ function rigHD() {
 // Vertical layering: an intensity level (0..3) from your speed adds/removes parts — changed only at bar lines.
 // Horizontal re-sequencing: a stage change queues a transition; the band plays a fill to the next bar line,
 // then enters the new stage's arrangement at the top of a phrase. Tempo and punch follow your speed.
-const cond = { step: 0, style: 0, pending: -1, fill: false, lvl: 0, enter: false, ended: false };
-function resetConductor() { Object.assign(cond, { step: 0, style: curStage, pending: -1, fill: false, lvl: 0, enter: true, ended: false }); }
+const cond = { step: 0, style: 0, pending: -1, fill: false, lvl: 0, enter: false, ended: false, minor: 0 };
+function resetConductor() { Object.assign(cond, { step: 0, style: curStage, pending: -1, fill: false, lvl: 0, enter: true, ended: false, minor: 0 }); }
+// After a crash the band drops into A Phrygian (A Bb C D E F G) until the end of the 4th full bar: major-key
+// styles turn minor, the minor ones get a dark flattened second. Every pitch goes through the same map, so nothing clashes.
+const DARK = { 4: 3, 9: 8, 11: 10, 2: 1 };              // interval above A -> lowered interval
+const darken = n => { const iv = (((n - 9) % 12) + 12) % 12; return iv in DARK ? n - 1 : n; };
+function musicCrash() {
+  const fresh = cond.minor <= 0;
+  cond.minor = Math.max(cond.minor, 64 + (16 - cond.step % 16));          // the rest of this bar + 4 bars
+  if (fresh && audio.rig && audio.rig.slump) audio.rig.slump(4 * 4 * 60 / STYLES[cond.style].tempo);
+}
 function snapTo(n, pcs) {
   let best = n, bd = 99;
   for (let d = -3; d <= 3; d++) { const m = n + d; if (pcs.includes(((m % 12) + 12) % 12) && Math.abs(d) < bd) { bd = Math.abs(d); best = m; } }
@@ -2033,6 +2058,12 @@ function conductorStep() {
   if (C.fill) { ev.kick = has(0); ev.snare = i >= 8 || i === 4; ev.tom = i >= 12; ev.hat = i < 8 && i % 2 === 0; ev.vel *= 0.9 + i / 40; }   // transition fill
   if (C.enter && i === 0) { ev.cymbal = true; ev.kick = true; C.enter = false; }
   else if (i === 0 && sIdx !== 0 && C.step % 64 === 0 && lvl >= 2) ev.cymbal = true;
+  if (C.minor > 0) {                                         // post-crash minor-key slump
+    C.minor--;
+    for (const k of ['bass', 'lead', 'counter', 'arp']) if (ev[k]) ev[k] = Object.assign({}, ev[k], { n: darken(ev[k].n) });
+    if (ev.comp) ev.comp = Object.assign({}, ev.comp, { notes: ev.comp.notes.map(darken) });
+    ev.vel *= 0.9; ev.cymbal = false;
+  }
   return ev;
 }
 function musicTick() {
@@ -2321,7 +2352,7 @@ function crash() {
   shake = 0.35;
   const now = performance.now();
   if (now - lastCrash < 600) return;          // one bang per impact, not one per frame while pinned against something
-  lastCrash = now; sfxCrash();
+  lastCrash = now; sfxCrash(); musicCrash();
   try { navigator.vibrate && navigator.vibrate(90); } catch (e) {}
 }
 function dust(side) {
