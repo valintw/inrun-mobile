@@ -44,6 +44,8 @@
   #splitRange { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; margin: 0; cursor: ew-resize; display: none; }
   .stage.comparing #splitRange { display: block; }
 
+  .drop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: rgba(10, 8, 16, .8);
+    border: 3px dashed var(--accent); color: var(--text); font-size: 20px; font-weight: 700; pointer-events: none; }
   .badge { position: absolute; top: 10px; left: 10px; background: rgba(10,8,16,.7); color: var(--text); font-size: 12px;
     font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: 5px 10px; border-radius: 999px; pointer-events: none; }
   .msg { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -94,8 +96,8 @@
 <header>
   <h1>Toon<span>Cam</span></h1>
   <div class="spacer"></div>
-  <button id="uploadBtn" class="round" title="Choose a photo" aria-label="Choose a photo">
-    <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></svg>
+  <button id="uploadBtn" title="Upload a photo from your device">
+    <svg class="icon" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>Upload photo
   </button>
   <input id="fileInput" type="file" accept="image/*">
   <input id="captureInput" type="file" accept="image/*" capture="environment">
@@ -122,6 +124,7 @@
   </div>
 
   <!-- camera controls -->
+  <div class="drop" id="drop" hidden>Drop your photo to cartoonify it</div>
   <div class="bar" id="camBar">
     <button id="flipBtn" class="round" title="Switch camera" aria-label="Switch camera">
       <svg class="icon" viewBox="0 0 24 24"><path d="M20 7h-3l-2-3H9L7 7H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1z"/><path d="M9 13a3 3 0 0 1 5.2-2"/><path d="M15 13a3 3 0 0 1-5.2 2"/><path d="M14 9v2h2M10 17v-2H8"/></svg>
@@ -171,7 +174,7 @@
     </div>
   </div>
 
-  <p class="hint" id="hint">Point the camera at something and tap the shutter. You can also pick a photo with the gallery button.</p>
+  <p class="hint" id="hint">Point the camera at something and tap the shutter. Or tap Upload photo, or drag a picture onto the page.</p>
 </main>
 
 <!-- ================= Image-processing worker ================= -->
@@ -739,7 +742,7 @@ async function startCamera() {
   msg.hidden = false;
   msg.innerHTML = '<div class="spinner"></div><div>Starting camera…</div>';
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    showCamError('This browser cannot open the camera here. Camera access needs HTTPS (or localhost). You can still choose a photo with the gallery button.');
+    showCamError('This browser cannot open the camera here. Camera access needs HTTPS (or localhost). You can still upload a photo.');
     return;
   }
   try {
@@ -756,8 +759,8 @@ async function startCamera() {
   } catch (err) {
     const denied = err && (err.name === 'NotAllowedError' || err.name === 'SecurityError');
     showCamError(denied
-      ? 'Camera permission was blocked. Allow camera access in your browser settings, or choose a photo with the gallery button.'
-      : 'Could not start the camera (' + (err && err.name || 'error') + '). You can choose a photo with the gallery button instead.');
+      ? 'Camera permission was blocked. Allow camera access in your browser settings, or upload a photo instead.'
+      : 'Could not start the camera (' + (err && err.name || 'error') + '). You can upload a photo instead.');
   }
 }
 let camAvailable = true;
@@ -823,7 +826,7 @@ function useSource(canvas, isExample) {
   $('camBar').hidden = true; $('resBar').hidden = false;
   $('panel').classList.add('on');
   $('hint').textContent = isExample
-    ? 'This is an example. Tap Take photo to use your camera, or the gallery button to pick a photo.'
+    ? 'This is an example. Tap Take photo to use your camera, or Upload photo to use a picture you already have.'
     : 'Pick a style or tweak the sliders. Tap Compare to see the original.';
   const ar = canvas.width / canvas.height;
   stage.style.aspectRatio = ar.toFixed(4);
@@ -857,7 +860,7 @@ function retake() {
   setCompare(false);
   $('camBar').hidden = false; $('resBar').hidden = true;
   $('panel').classList.remove('on');
-  $('hint').textContent = 'Point the camera at something and tap the shutter. You can also pick a photo with the gallery button.';
+  $('hint').textContent = 'Point the camera at something and tap the shutter. Or tap Upload photo, or drag a picture onto the page.';
   startCamera();
 }
 
@@ -901,7 +904,14 @@ $('saveSvgBtn').onclick = () => saveBlob(new Blob([svgText], { type: 'image/svg+
 $('uploadBtn').onclick = () => $('fileInput').click();
 async function onPicked(e) {
   const file = e.target.files[0]; e.target.value = '';
+  loadFile(file);
+}
+async function loadFile(file) {
   if (!file) return;
+  if (file.type && !file.type.startsWith('image/')) {
+    $('hint').innerHTML = '<span class="err">That file is not an image. Choose a JPEG, PNG, WebP or HEIC photo.</span>';
+    return;
+  }
   try {
     const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }).catch(() => createImageBitmap(file));
     const c = document.createElement('canvas');
@@ -914,6 +924,23 @@ async function onPicked(e) {
   }
 }
 $('fileInput').onchange = onPicked;
+// Drag and drop a picture anywhere on the page.
+let dragDepth = 0;
+const hasFiles = (e) => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
+document.addEventListener('dragenter', (e) => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth++; $('drop').hidden = false; });
+document.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
+document.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; $('drop').hidden = true; } });
+document.addEventListener('drop', (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault(); dragDepth = 0; $('drop').hidden = true;
+  const f = Array.from(e.dataTransfer.files).find(f => f.type.startsWith('image/')) || e.dataTransfer.files[0];
+  loadFile(f);
+});
+// Paste an image from the clipboard (Ctrl/Cmd+V).
+document.addEventListener('paste', (e) => {
+  const item = Array.from((e.clipboardData && e.clipboardData.items) || []).find(i => i.type.startsWith('image/'));
+  if (item) { e.preventDefault(); loadFile(item.getAsFile()); }
+});
 $('captureInput').onchange = onPicked;
 
 // ---------- controls ----------
