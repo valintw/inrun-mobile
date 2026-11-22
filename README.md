@@ -4,6 +4,8 @@ An arcade sunset driving game in a single HTML file, built for phones. You steer
 
 ## A drive through gaming time
 The circuit has seven stages — Coastline, Desert Run, Alpine Pass, Downtown Rain, Beachfront, Sunset Blvd and Neon City.
+The Alpine Pass has two hairpin bends — a left-hander on the climb and a right-hander on the way down — flagged
+a moment before you reach them; take them at around a third of top speed.
 Every full lap moves the graphics and music one era along — up to HD and back down again, and every run in either
 direction ends with the WANTED survival lap (EGA → Amiga → VGA → SVGA → HD → **WANTED** → SVGA → VGA → Amiga → EGA →
 **WANTED** → Amiga → …):
@@ -38,6 +40,9 @@ In the tracker/synth eras the score reacts to the game, in the spirit of LucasAr
   western with twang guitar and whistle (Desert Run), oom-pah polka with accordion, flugelhorn and tuba (Alpine Pass),
   industrial EBM with metallic clangs (Downtown Rain), calypso with steel pan and ukulele (Beachfront), synthwave (Sunset Blvd) and techno with acid bass (Neon City). Crossing a checkpoint plays a one-bar fill, then the
   new arrangement enters at the top of a phrase. Game over ends on a final chord.
+- **Crash = minor key** — hit scenery or another car and the band drops straight into A Phrygian (major-key styles
+  turn minor, minor ones get a dark flattened 2nd) for the rest of the bar plus four more. In the HD era the MP3 track
+  sags about a semitone and goes muffled for the same time.
 
 ## WANTED bonus lap
 Each run of eras, up or down, ends with a survival lap in the HD renderer. The clock is frozen and replaced by your lap progress, and a
@@ -47,7 +52,8 @@ drifting into your line as you close in — weave past at speed and they can't t
 switch to boxing you in: one gets in front and brake-checks, the others pull alongside. Get boxed in (a pickup in
 front, another beside you or the road edge) at low speed and you're **BUSTED**: a 3D cutscene plays out where you
 stopped — the gang climb out, haul you onto the tarmac, bash you with baseball caps and wheelspin off in your car
-(game over). Get back up to speed and you break free. Finish the lap for
+(game over). Get back up to speed and you break free. Ram a pickup at speed and it goes flying — spun round, bounced up
+the road and out of the chase for a few seconds. Finish the lap for
 +25,000 points and +20 s, and the eras head off the other way with busier traffic. Start straight in it with `?era=6`.
 
 ## Time bonus & traffic

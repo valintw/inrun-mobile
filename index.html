@@ -34,6 +34,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Anton&display=swap&text=MAJORLCENYT" rel="stylesheet">
 <style>
   :root { --pink:#ff3d9a; --cyan:#3df2ff; --yellow:#ffe14d; --orange:#ff8a3d; }
   html, body { margin:0; height:100%; background:#000; overflow:hidden; overscroll-behavior:none;
@@ -45,6 +46,23 @@
     background-image:linear-gradient(rgba(0,0,0,0) 50%, rgba(0,0,0,.55) 50%); transition:opacity .4s; }
   #flash { position:fixed; inset:0; pointer-events:none; z-index:2; background:#fff; opacity:0; }
   #flash.go { animation:flash .9s ease-out; }
+  /* WANTED era title card: a cheeky nod to a certain open-world crime franchise */
+  #larceny { position:fixed; left:50%; top:38%; z-index:8; pointer-events:none; opacity:0; text-align:center; line-height:.86;
+             font-family:Anton, Impact, 'Arial Narrow Bold', sans-serif; color:#fff; text-transform:uppercase; white-space:nowrap;
+             transform:translate(-50%,-50%) rotate(-4deg); -webkit-text-stroke:.05em #000; paint-order:stroke fill;
+             text-shadow:.04em .05em 0 #000, .08em .1em .12em rgba(0,0,0,.55); }
+  #larceny span { display:block; }
+  #larceny .l1 { font-size:clamp(28px,7vw,72px); letter-spacing:.06em; }
+  #larceny .l2 { font-size:clamp(56px,15vw,156px); color:#ffd23f; }
+  #larceny .l3 { font-size:clamp(34px,9vw,92px); letter-spacing:.03em; }
+  #larceny.go { animation:larceny 1.7s ease-out forwards; }
+  @keyframes larceny {
+    0%   { opacity:0; transform:translate(-50%,-50%) rotate(-4deg) scale(2.4); }
+    12%  { opacity:1; transform:translate(-50%,-50%) rotate(-4deg) scale(.94); }
+    20%  { transform:translate(-50%,-50%) rotate(-4deg) scale(1.03); }
+    28%,78% { opacity:1; transform:translate(-50%,-50%) rotate(-4deg) scale(1); }
+    100% { opacity:0; transform:translate(-50%,-50%) rotate(-4deg) scale(1.08); }
+  }
   @keyframes flash { 0% { opacity:.95; } 100% { opacity:0; } }
   /* WANTED bonus era */
   #sirenFx { position:fixed; inset:0; pointer-events:none; z-index:2; opacity:0; }
@@ -149,6 +167,7 @@
 <canvas id="gameHi" style="display:none"></canvas>
 <div id="crt"></div>
 <div id="flash"></div>
+<div id="larceny"><span class="l1">Major</span><span class="l2">Larceny</span><span class="l3">Motorcar</span></div>
 <div id="sirenFx"></div>
 <canvas id="cut"></canvas>
 
@@ -1023,13 +1042,29 @@ function addRoad(enter, hold, leave, curve, height, stage) {
   for (let i = 0; i < leave; i++) addSegment(easeInOut(curve, 0, i/leave), easeInOut(startY, endY, (enter+hold+i)/total), stage);
 }
 
+// A hairpin: a tight 180-degree bend (about 27 m radius in the 3D view) that needs a big lift or a dab of brake.
+const HAIRPIN_CURVE = 15, HAIRPIN_IN = 25, HAIRPIN_OUT = 25;
+const HAIRPIN_HOLD = Math.round(Math.PI / (HAIRPIN_CURVE * 0.25 / SEG_LEN) - HAIRPIN_IN / 3 - HAIRPIN_OUT / 2);
+let hairpins = [];                                       // { seg, dir } where each hairpin starts, for the warning
+function addHairpin(dir, height, stage) {
+  addRoad(20, 30, 0, 0, height * 0.15, stage);           // short straight run-up
+  hairpins.push({ seg: segments.length, dir, warned: -1 });
+  addRoad(HAIRPIN_IN, HAIRPIN_HOLD, HAIRPIN_OUT, dir * HAIRPIN_CURVE, height * 0.85, stage);
+  addRoad(20, 30, 20, 0, 0, stage);                      // and a breather after
+}
+
 function buildTrack() {
-  segments = [];
+  segments = []; hairpins = [];
   for (let s = 0; s < N_STAGES; s++) {
     const R = rng(4242 + s * 131);
     const start = segments.length;
     addRoad(40, 40, 40, 0, 0, s);
+    let hpDone = 0;
     while (segments.length - start < STAGE_LEN) {
+      // the Alpine Pass gets two hairpins: a left-hander on the climb, a right-hander on the way down
+      if (s === ALPINE && hpDone < 2 && (segments.length - start) / STAGE_LEN >= [0.3, 0.8][hpDone]) {
+        addHairpin(hpDone ? 1 : -1, hpDone ? -45 : 45, s); hpDone++; continue;
+      }
       const t = R();
       const L = (s === ALPINE ? [35, 50, 70] : [25, 40, 60])[Math.floor(R()*3)];
       const dir = R() < 0.5 ? -1 : 1;
@@ -1139,7 +1174,7 @@ const bust = { t: 0 };
 // The gang drives like slow traffic ahead of you, staggered across the lanes, drifting into your line as you approach.
 // Weave past at speed and they can't touch you. Slow down and the nearby ones switch to boxing you in:
 // one gets in front, the others pull alongside. They never attack from behind (where the chase camera can't show them).
-const GANG_CRUISE = 0.5, GANG_BOX_MAX = 0.7, BOX_SLOW = 0.4, BUST_SPEED = 0.35;
+const GANG_CRUISE = 0.5, GANG_BOX_MAX = 0.66, BOX_SLOW = 0.33, BUST_SPEED = 0.28, BREAK_FREE = 0.5, BUST_TIME = 2.4;
 function spawnGang() {
   removeGang();
   const pz = position + PLAYER_Z;
@@ -1175,24 +1210,34 @@ function gangDrive(car, dt) {
   const pz = position + PLAYER_Z, L = lenOf('pickup'), half = (L + lenOf('player')) / 2, dz = zDelta(car.z - pz);
   if (dz < -45 * SEG_LEN) {                     // left far behind: it turns up again further ahead, as fresh "traffic"
     car.z = wrap(pz + (95 + Math.random() * 60) * SEG_LEN, trackLength);
-    car.offset = car.target = LANES3[Math.floor(Math.random() * 3)]; car.speed = MAX_SPEED * GANG_CRUISE; car.mode = car.role = 'cruise';
+    car.offset = car.target = LANES3[Math.floor(Math.random() * 3)]; car.speed = MAX_SPEED * GANG_CRUISE; car.mode = car.role = 'cruise'; car.stun = car.hop = car.spin = 0;
     return;
   }
-  if (car.mode === 'box' && speed > MAX_SPEED * 0.62) car.mode = car.role = 'cruise';                // you broke free
-  else if (car.mode === 'cruise' && bust.slowT > 0.8 && Math.abs(dz) < 45 * SEG_LEN) car.mode = 'box';   // stay slow and they close in (a quick bump is forgiven)
+  if (car.stun > 0) {                           // rammed: tumbling away, out of the game for a few seconds
+    car.stun -= dt; car.mode = car.role = 'cruise';
+    car.speed = Math.max(MAX_SPEED * 0.3, car.speed - MAX_SPEED * 0.35 * dt);
+    car.offset = clamp(car.offset + car.vx * dt, -1.8, 1.8); car.vx *= Math.exp(-dt * 1.6);
+    car.hopV -= 22 * dt; car.hop = Math.max(0, car.hop + car.hopV * dt); if (car.hop === 0 && car.hopV < -2) car.hopV *= -0.35; else if (car.hop === 0) car.hopV = 0;
+    car.spin += car.spinV * dt; car.spinV *= Math.exp(-dt * 1.2);
+    if (car.stun <= 0) { car.spin = 0; car.hop = 0; car.target = clamp(car.offset, -0.95, 0.95); }
+    car.z = wrap(car.z + dt * car.speed, trackLength);
+    return;
+  }
+  if (car.mode === 'box' && speed > MAX_SPEED * BREAK_FREE) car.mode = car.role = 'cruise';          // you broke free
+  else if (car.mode === 'cruise' && bust.slowT > 1.6 && Math.abs(dz) < 40 * SEG_LEN) car.mode = 'box';   // stay slow for a while and they close in
   let want, toff = car.target, lat = 0.35;
   if (car.mode === 'cruise') {
     want = MAX_SPEED * GANG_CRUISE;
     if (dz > 0 && (speed < MAX_SPEED * BOX_SLOW || dz > 160 * SEG_LEN)) want = Math.min(want, speed * 0.5);   // slow down and they drop back to you
     if (dz > half && dz < 30 * SEG_LEN) toff = clamp(playerX, -0.8, 0.8);          // drift across to block your line (dodgeable)
   } else {
-    let tz = 0; toff = playerX; lat = 0.9;
+    let tz = 0; toff = playerX; lat = 0.55;
     if (car.role === 'block') tz = half + L * 0.5;
     else if (car.role === 'pinL') toff = playerX - 0.55;
     else if (car.role === 'pinR') toff = playerX + 0.55;
     else { tz = half + L * 2.5; toff = playerX + (playerX > 0 ? -0.6 : 0.6); }
-    want = speed + (tz - dz) * 2.2;
-    if (car.role === 'block' && dz > 0 && dz < half + L && Math.abs(car.offset - playerX) < 0.3) want = Math.min(want, speed * 0.85);   // brake-check
+    want = speed + (tz - dz) * 1.4;
+    if (car.role === 'block' && dz > 0 && dz < half + L && Math.abs(car.offset - playerX) < 0.3) want = Math.min(want, speed * 0.94);   // a gentle brake-check
     if (car.role.startsWith('pin') && Math.abs(dz) > half * 1.5) toff += car.role === 'pinL' ? -0.15 : 0.15;   // hold the next lane until alongside
   }
   car.speed = clamp(car.speed + clamp(want - car.speed, -MAX_SPEED * 1.2 * dt, MAX_SPEED * 0.45 * dt), 0, MAX_SPEED * GANG_BOX_MAX);
@@ -1204,7 +1249,7 @@ function gangDrive(car, dt) {
 function gangBoxed() {                          // a pickup square in front of you, and one beside you (or the road edge)
   const pz = position + PLAYER_Z, L = lenOf('pickup'), half = (L + lenOf('player')) / 2;
   let block = false, pin = 0;
-  for (const c of cars) if (c.gang) {
+  for (const c of cars) if (c.gang && !(c.stun > 0)) {
     const dz = zDelta(c.z - pz), lat = Math.abs(c.offset - playerX);
     if (dz > 0 && dz < half + L * 1.6 && lat < 0.5) block = true;
     if (Math.abs(dz) < half * 1.5 && lat > 0.15 && lat < 0.95) pin++;
@@ -1885,10 +1930,12 @@ function rigGUS(hd) {
 // alternating <audio> players. When the current track is half played, the other player starts loading
 // the next (random, never the same track twice running); when the track ends, the next one takes over.
 function makeJukebox(a) {
-  const J = { list: null, loading: null, players: [], cur: 0, last: -1, failed: false, ready: [false, false], nextPrimed: false, wantPlay: false };
+  const J = { list: null, loading: null, players: [], filters: [], cur: 0, last: -1, failed: false, ready: [false, false], nextPrimed: false, wantPlay: false };
   for (let i = 0; i < 2; i++) {
     const el = new Audio(); el.preload = 'none'; el.crossOrigin = 'anonymous';
-    try { const src = a.createMediaElementSource(el), g = a.createGain(); g.gain.value = 0.55; src.connect(g); g.connect(audio.master); } catch (e) { J.failed = true; }
+    el.preservesPitch = el.mozPreservesPitch = el.webkitPreservesPitch = false;
+    try { const src = a.createMediaElementSource(el), f = a.createBiquadFilter(), g = a.createGain(); f.type = 'lowpass'; f.frequency.value = 20000; g.gain.value = 0.55;
+          src.connect(f); f.connect(g); g.connect(audio.master); J.filters[i] = f; } catch (e) { J.failed = true; }
     el.addEventListener('canplay', () => { J.ready[i] = true; });
     el.addEventListener('error', () => { J.ready[i] = false; if (el.dataset.idx) J.bad.add(+el.dataset.idx); if (i === J.cur) J.skip(); });
     el.addEventListener('timeupdate', () => {
@@ -1938,6 +1985,19 @@ function makeJukebox(a) {
     if (playing && el.paused) el.play().catch(() => {});
     if (!playing && !el.paused) el.pause();
   };
+  // a crash: the track sags about a semitone and goes dull for a few seconds, then recovers
+  J.slumpT = 0;
+  J.slump = (secs) => {
+    const t0 = performance.now(), sag = 0.945, now = a.currentTime;
+    J.filters.forEach(f => { if (!f) return; f.frequency.cancelScheduledValues(now); f.frequency.setTargetAtTime(1600, now, 0.08); f.frequency.setTargetAtTime(20000, now + secs - 0.4, 0.25); });
+    clearInterval(J.slumpT);
+    J.slumpT = setInterval(() => {
+      const e = (performance.now() - t0) / 1000;
+      const r = e < 0.3 ? 1 - (1 - sag) * e / 0.3 : e < secs - 0.6 ? sag : e < secs ? sag + (1 - sag) * (e - secs + 0.6) / 0.6 : 1;
+      J.players.forEach(el => { el.playbackRate = r; });
+      if (e >= secs) clearInterval(J.slumpT);
+    }, 40);
+  };
   J.stop = () => { J.wantPlay = false; J.players.forEach(el => { if (!el.paused) el.pause(); }); };
   return J;
 }
@@ -1948,6 +2008,7 @@ function rigHD() {
   return Object.assign({}, sfx, {
     music(ev, t) { if (!(m && m.ok())) sfx.music(ev, t); },        // synthesised score until a track is ready
     stream(playing) { if (m) m.stream(playing); },
+    slump(secs) { if (m && m.ok()) m.slump(secs); },
     teardown() { if (m) m.stop(); sfx.teardown(); }
   });
 }
@@ -1957,8 +2018,17 @@ function rigHD() {
 // Vertical layering: an intensity level (0..3) from your speed adds/removes parts — changed only at bar lines.
 // Horizontal re-sequencing: a stage change queues a transition; the band plays a fill to the next bar line,
 // then enters the new stage's arrangement at the top of a phrase. Tempo and punch follow your speed.
-const cond = { step: 0, style: 0, pending: -1, fill: false, lvl: 0, enter: false, ended: false };
-function resetConductor() { Object.assign(cond, { step: 0, style: curStage, pending: -1, fill: false, lvl: 0, enter: true, ended: false }); }
+const cond = { step: 0, style: 0, pending: -1, fill: false, lvl: 0, enter: false, ended: false, minor: 0 };
+function resetConductor() { Object.assign(cond, { step: 0, style: curStage, pending: -1, fill: false, lvl: 0, enter: true, ended: false, minor: 0 }); }
+// After a crash the band drops into A Phrygian (A Bb C D E F G) until the end of the 4th full bar: major-key
+// styles turn minor, the minor ones get a dark flattened second. Every pitch goes through the same map, so nothing clashes.
+const DARK = { 4: 3, 9: 8, 11: 10, 2: 1 };              // interval above A -> lowered interval
+const darken = n => { const iv = (((n - 9) % 12) + 12) % 12; return iv in DARK ? n - 1 : n; };
+function musicCrash() {
+  const fresh = cond.minor <= 0;
+  cond.minor = Math.max(cond.minor, 64 + (16 - cond.step % 16));          // the rest of this bar + 4 bars
+  if (fresh && audio.rig && audio.rig.slump) audio.rig.slump(4 * 4 * 60 / STYLES[cond.style].tempo);
+}
 function snapTo(n, pcs) {
   let best = n, bd = 99;
   for (let d = -3; d <= 3; d++) { const m = n + d; if (pcs.includes(((m % 12) + 12) % 12) && Math.abs(d) < bd) { bd = Math.abs(d); best = m; } }
@@ -2017,6 +2087,12 @@ function conductorStep() {
   if (C.fill) { ev.kick = has(0); ev.snare = i >= 8 || i === 4; ev.tom = i >= 12; ev.hat = i < 8 && i % 2 === 0; ev.vel *= 0.9 + i / 40; }   // transition fill
   if (C.enter && i === 0) { ev.cymbal = true; ev.kick = true; C.enter = false; }
   else if (i === 0 && sIdx !== 0 && C.step % 64 === 0 && lvl >= 2) ev.cymbal = true;
+  if (C.minor > 0) {                                         // post-crash minor-key slump
+    C.minor--;
+    for (const k of ['bass', 'lead', 'counter', 'arp']) if (ev[k]) ev[k] = Object.assign({}, ev[k], { n: darken(ev[k].n) });
+    if (ev.comp) ev.comp = Object.assign({}, ev.comp, { notes: ev.comp.notes.map(darken) });
+    ev.vel *= 0.9; ev.cymbal = false;
+  }
   return ev;
 }
 function musicTick() {
@@ -2105,7 +2181,7 @@ function update(dt) {
   const thr = over ? -0.4 : input.throttle;
   playerX += dx * input.steer * (over ? 0 : 1.15) + playerVX * dt;     // steering + any knock from a collision
   playerVX *= Math.exp(-dt * 5);
-  playerX -= dx * pct * playerSeg.curve * CENTRIFUGAL;
+  playerX -= dx * pct * clamp(playerSeg.curve, -11, 11) * CENTRIFUGAL;   // hairpins look tighter than they pull
 
   if (thr > 0) speed += ACCEL * thr * (1 - 0.45 * pct) * dt;
   else if (thr < 0) speed += BRAKE * -thr * dt;
@@ -2135,6 +2211,14 @@ function update(dt) {
       if (Math.abs(dz) >= half || !overlap(playerX, pw, car.offset, car.w, 0.9)) continue;
       const side = playerX >= car.offset ? 1 : -1, depth = half - Math.abs(dz);
       let rel = Math.abs(speed - car.speed) / MAX_SPEED;
+      if (car.gang && !(car.stun > 0) && speed > MAX_SPEED * 0.45) {     // ram a gang pickup at speed and it goes flying
+        const hit = speed / MAX_SPEED;
+        car.stun = 3.2; car.speed = speed * (1.05 + 0.35 * hit); car.hop = 0; car.hopV = 3 + 5 * hit;
+        car.vx = -side * (0.9 + 1.6 * hit); car.spin = 0; car.spinV = -side * (4 + 6 * hit);
+        car.z = wrap(pz + (dz > 0 ? half + 1 : -half - 1), trackLength);
+        speed *= 0.9; playerVX += side * 0.35; syncCarSeg(car); crash();
+        continue;
+      }
       if (dz > 0 && speed > car.speed && depth < half * 0.7) {          // we rear-ended it: it gets shunted, we lose speed
         car.speed = Math.min(car.speed0 * 1.4, car.speed + (speed - car.speed) * 0.4);
         speed = car.speed * 0.8;
@@ -2174,13 +2258,17 @@ function update(dt) {
         if (prog >= bust.arriveAt) { bust.arriveAt = null; spawnGang(); toast('THERE THEY ARE — WEAVE THROUGH!'); }
       }
       else if (bust.grace > 0) bust.grace -= dt;
-      else if (boxed || stopped) bust.t += dt * (stopped ? 1.5 : 1); else bust.t = Math.max(0, bust.t - dt * 0.6);
-      if (bust.t > 1.6) { startBusted(); return; }
+      else if (boxed || stopped) bust.t += dt * (stopped ? 1.5 : 1); else bust.t = Math.max(0, bust.t - dt * 1.2);
+      if (bust.t > BUST_TIME) { startBusted(); return; }
     }
     if (timeLeft <= 0) { timeLeft = 0; state = 'over'; setMsg('TIME UP', ''); msgTimer = 99; }
   } else if (speed <= 0) { endGame(); }
 
   updateBonus(dt, playerSeg, pw, over);
+  for (const hp of hairpins) {                           // flag each hairpin a couple of seconds before it
+    const ahead = hp.seg - playerSeg.index;
+    if (ahead > 0 && ahead < 160 && hp.warned !== lap && !over) { hp.warned = lap; toast(hp.dir < 0 ? '\u21B6 HAIRPIN LEFT \u2014 BRAKE!' : 'HAIRPIN RIGHT \u21B7 \u2014 BRAKE!'); }
+  }
 
   // checkpoints / stage changes
   if (playerSeg.stage !== curStage) {
@@ -2235,6 +2323,8 @@ function announceEra() {
   f.classList.remove('go'); void f.offsetWidth; f.classList.add('go');
   $('eraTag').innerHTML = E.year + ' &middot; ' + E.name + '<br><span style="font-size:.8em;color:#fff">' + E.sub + '</span>';
   eraTagT = 3.5;
+  const lc = $('larceny'); lc.classList.remove('go');
+  if (E.bonus) { void lc.offsetWidth; lc.classList.add('go'); }
 }
 
 // ---- vehicle lengths (world units): real lengths in the 3D era, sprite-ish depth in the 2D eras ----
@@ -2274,6 +2364,7 @@ function updateCars(dt) {
       if (free.length && Math.abs(car.target - car.offset) < 0.05) car.target = free[Math.floor(Math.random() * free.length)];
       else if (gap < 8 * SEG_LEN) want = Math.min(want, ahead.speed * (gap < 2 * SEG_LEN ? 0.9 : 1));
     }
+    if (Math.abs(findSegment(car.z + 30 * SEG_LEN).curve) > 8 || Math.abs(car.seg.curve) > 8) want = Math.min(want, MAX_SPEED * 0.3);   // everyone slows for a hairpin
     car.speed += clamp(want - car.speed, -MAX_SPEED * 0.7 * dt, MAX_SPEED * 0.12 * dt);
     car.timer -= dt;
     if (car.timer <= 0) { car.timer = 3 + Math.random() * 6; const l = LANES3[Math.floor(Math.random() * 3)]; if (laneFree(car, l)) car.target = l; }
@@ -2300,7 +2391,7 @@ function crash() {
   shake = 0.35;
   const now = performance.now();
   if (now - lastCrash < 600) return;          // one bang per impact, not one per frame while pinned against something
-  lastCrash = now; sfxCrash();
+  lastCrash = now; sfxCrash(); musicCrash();
   try { navigator.vibrate && navigator.vibrate(90); } catch (e) {}
 }
 function dust(side) {
@@ -3327,10 +3418,12 @@ function build3D(T, A) {
       rp[r*6] = px[r] - cx * halfRoad; rp[r*6+1] = py[r]; rp[r*6+2] = pz[r] - sz * halfRoad;
       rp[r*6+3] = px[r] + cx * halfRoad; rp[r*6+4] = py[r]; rp[r*6+5] = pz[r] + sz * halfRoad;
       ru[r*4] = 0; ru[r*4+1] = v; ru[r*4+2] = 1; ru[r*4+3] = v;
-      gp[r*6] = px[r] - cx * halfGround; gp[r*6+1] = py[r] - 0.04; gp[r*6+2] = pz[r] - sz * halfGround;
-      gp[r*6+3] = px[r] + cx * halfGround; gp[r*6+4] = py[r] - 0.04; gp[r*6+5] = pz[r] + sz * halfGround;
+      const cv = segments[pi[r]].curve, inner = Math.abs(cv) > 4 ? Math.min(halfGround, 0.8 * SEG_M / (Math.abs(cv) * CURVE_K)) : halfGround;
+      const gL = cv < -4 ? inner : halfGround, gR = cv > 4 ? inner : halfGround;   // the inside of a tight bend would fold over itself
+      gp[r*6] = px[r] - cx * gL; gp[r*6+1] = py[r] - 0.04; gp[r*6+2] = pz[r] - sz * gL;
+      gp[r*6+3] = px[r] + cx * gR; gp[r*6+4] = py[r] - 0.04; gp[r*6+5] = pz[r] + sz * gR;
       const gv = (base.index - B3 + r) * SEG_M / 6;
-      gu[r*4] = 0; gu[r*4+1] = gv; gu[r*4+2] = halfGround * 2 / 6; gu[r*4+3] = gv;
+      gu[r*4] = (halfGround - gL) / 6; gu[r*4+1] = gv; gu[r*4+2] = (halfGround + gR) / 6; gu[r*4+3] = gv;
       const sp3 = seaGeo.attributes.position.array, su = seaGeo.attributes.uv.array, sIn = 16, sOut = 700;
       sp3[r*6] = px[r] + cx * sIn; sp3[r*6+1] = py[r] - 0.02; sp3[r*6+2] = pz[r] + sz * sIn;
       sp3[r*6+3] = px[r] + cx * sOut; sp3[r*6+4] = py[r] - 0.02; sp3[r*6+5] = pz[r] + sz * sOut;
@@ -3514,7 +3607,7 @@ function build3D(T, A) {
         if (!CUT.active && (x - camera.position.x) ** 2 + (z - camera.position.z) ** 2 < 30) continue;   // never draw a vehicle around the camera
         const half = (ty === 'truck' ? 3.6 : 2.3) / SEG_M;              // slope measured over the car's own length
         const pitch = Math.atan2(at(d + half).y - at(d - half).y, 2 * half * SEG_M);
-        place(cm.bodyIM, cm.n, x, (at(d + half).y + at(d - half).y) / 2, z, -p.h, 1, pitch); cm.detIM.setMatrixAt(cm.n, mtx);
+        place(cm.bodyIM, cm.n, x, (at(d + half).y + at(d - half).y) / 2 + (car.hop || 0), z, -p.h + (car.spin || 0), 1, car.hop ? pitch + Math.sin(car.spin * 0.7) * 0.25 : pitch); cm.detIM.setMatrixAt(cm.n, mtx);
         cm.bodyIM.setColorAt(cm.n, carColor[car.ci]); cm.n++;
       }
     }
