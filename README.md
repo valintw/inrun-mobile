@@ -4,8 +4,8 @@ An arcade sunset driving game in a single HTML file, built for phones. You steer
 
 ## A drive through gaming time
 The circuit has seven stages — Coastline, Desert Run, Alpine Pass, Downtown Rain, Beachfront, Sunset Blvd and Neon City.
-Every full lap moves the graphics and music one era along — up to HD, a WANTED bonus lap, then back down to EGA
-(EGA → Amiga → VGA → SVGA → HD → **WANTED** → SVGA → VGA → Amiga → EGA …):
+Every full lap moves the graphics and music one era along — up to HD and back down, and each cycle ends with the
+WANTED survival lap (EGA → Amiga → VGA → SVGA → HD → SVGA → VGA → Amiga → **WANTED** → EGA …):
 
 | Lap | Era | Look |
 |---|---|---|
@@ -39,11 +39,11 @@ In the tracker/synth eras the score reacts to the game, in the spirit of LucasAr
   new arrangement enters at the top of a phrase. Game over ends on a final chord.
 
 ## WANTED bonus lap
-After the HD lap comes a bonus lap in the HD renderer with sirens and police lights: survive it. The clock is frozen and
-replaced by your lap progress, and a gang of black pickups works together to box you in — one gets in front and
+Each era cycle ends with a survival lap in the HD renderer, with sirens and police lights. The clock is frozen and
+replaced by your lap progress, and a gang of black pickup trucks works together to box you in — one gets in front and
 brake-checks, two pull alongside, one lurks in the next lane and swerves into you. Crawl along with a truck on you for
 too long and you're **BUSTED**: they haul you out, bash you with baseball caps and drive off in your car (game over).
-Finish the lap and you get +25,000 points and +20 s, and the eras head back down. Start straight in it with `?era=6`.
+Finish the lap and you get +25,000 points and +20 s, and a new, busier cycle starts back in 1987. Start straight in it with `?era=6`.
 
 ## Time bonus & traffic
 - When the clock drops below 10 seconds, a glowing **+20 s stopwatch** drops onto the road ahead at a random moment

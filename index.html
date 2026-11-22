@@ -756,6 +756,20 @@ function drawCar(g, w, h, color, lean, brake, type, hd) {
     if (hd) { g.fillStyle = 'rgba(255,255,255,.07)'; for (let i = 0; i < 6; i++) g.fillRect(x + w*0.02, h*0.68 + i*h*0.045, w*0.13, 1.5*u); }
   };
   tyre(w*0.05 + L*0.3); tyre(w*0.78 + L*0.3);
+  if (type === 'pickup') {
+    g.fillStyle = shade(color, 0.08); rr(g, w*0.17 + L, h*0.07, w*0.66, h*0.36, 6*u);              // cab
+    g.fillStyle = '#1b2433'; rr(g, w*0.23 + L, h*0.12, w*0.54, h*0.19, 4*u);                       // rear window
+    g.fillStyle = '#333'; g.fillRect(w*0.26 + L*1.2, h*0.02, w*0.48, h*0.06);                      // roof light bar
+    g.fillStyle = '#ffb300'; g.fillRect(w*0.29 + L*1.2, h*0.03, w*0.12, h*0.04); g.fillRect(w*0.59 + L*1.2, h*0.03, w*0.12, h*0.04);
+    g.fillStyle = color; rr(g, w*0.03, h*0.4, w*0.94, h*0.38, 5*u);                                 // bed sides + tailgate
+    g.fillStyle = shade(color, -0.4); g.fillRect(w*0.08, h*0.41, w*0.84, h*0.06);                  // the open bed
+    g.fillStyle = shade(color, 0.25); g.fillRect(w*0.05, h*0.48, w*0.9, Math.max(1, 2*u));
+    g.fillStyle = brake ? '#ff4545' : '#a01818'; g.fillRect(w*0.04, h*0.45, w*0.06, h*0.2); g.fillRect(w*0.9, h*0.45, w*0.06, h*0.2);
+    g.fillStyle = '#eee'; g.fillRect(w*0.42, h*0.6, w*0.16, h*0.09);
+    g.fillStyle = '#1a1a1a'; rr(g, w*0.02, h*0.74, w*0.96, h*0.08, 3*u);
+    if (hd) lightOverlay(g, w, h, 1);
+    return;
+  }
   if (type === 'truck' || type === 'van') {
     const tall = type === 'truck';
     const top = tall ? h*0.0 : h*0.18;
@@ -849,9 +863,9 @@ function buildSprites(hd) {
 
   const carCols = ['#2f6bff','#ffe14d','#ffffff','#1aa760','#ff8a3d','#8a3dff','#e8e8e8','#222428','#ff3d9a','#3dd2ff', '#141414'];
   S.cars = carCols.map((c, i) => {
-    const type = i === 10 || i % 5 === 3 ? 'truck' : i % 4 === 1 ? 'van' : i % 2 ? 'sedan' : 'sport';
-    const w = type === 'truck' ? 780 : type === 'van' ? 700 : 640;
-    const ih = type === 'truck' ? 180 : type === 'van' ? 130 : 110;
+    const type = i === 10 ? 'pickup' : i % 5 === 3 ? 'truck' : i % 4 === 1 ? 'van' : i % 2 ? 'sedan' : 'sport';
+    const w = type === 'truck' ? 780 : type === 'van' ? 700 : type === 'pickup' ? 740 : 640;
+    const ih = type === 'truck' ? 180 : type === 'van' ? 130 : type === 'pickup' ? 140 : 110;
     return { img: mk(200*z, ih*z, (g,cw,chh) => drawCar(g, cw, chh, c, 0, false, type, hd)), worldW: w, type };
   });
   S.player = {};
@@ -1104,8 +1118,8 @@ function buildTrack() {
 }
 
 // ---- difficulty: each full era cycle (up to HD and back to EGA) brings 20% more traffic, 20% faster ----
-// 9 laps: EGA Amiga VGA SVGA HD WANTED(bonus) SVGA VGA Amiga | EGA ...
-const ERA_ORDER = [0, 1, 2, 3, 4, 5, 3, 2, 1], ERA_CYCLE = ERA_ORDER.length;
+// 9 laps: EGA Amiga VGA SVGA HD SVGA VGA Amiga, then the WANTED survival challenge ends the cycle | EGA ...
+const ERA_ORDER = [0, 1, 2, 3, 4, 3, 2, 1, 5], ERA_CYCLE = ERA_ORDER.length;
 const eraForLap = (l) => ERA_ORDER[l % ERA_CYCLE];
 const MAX_CARS = 150, TRAFFIC_TOP = 0.8;                // keep the car count phone-friendly and traffic slower than you
 let trafficLevel = 0;
@@ -1126,7 +1140,7 @@ function spawnGang() {
   const pz = position + PLAYER_Z, roles = [['block', 40], ['pinL', -28], ['pinR', -36], ['ram', -46]];
   roles.forEach(([role, segs], k) => {
     const z = wrap(pz + segs * SEG_LEN, trackLength), offset = role === 'pinL' ? -0.66 : role === 'pinR' ? 0.66 : (k % 2 ? 0.66 : -0.66);
-    const car = { offset, target: offset, z, ci: GANG_CI, speed: speed, speed0: MAX_SPEED * 0.95, vx: 0, percent: 0, w: SPR_LO.cars[GANG_CI].worldW / ROAD_W, timer: 99, type: 'truck', gang: true, role };
+    const car = { offset, target: offset, z, ci: GANG_CI, speed: speed, speed0: MAX_SPEED * 0.95, vx: 0, percent: 0, w: SPR_LO.cars[GANG_CI].worldW / ROAD_W, timer: 99, type: 'pickup', gang: true, role };
     car.seg = findSegment(z); car.seg.cars.push(car); cars.push(car);
   });
   bust.t = 0; bust.grace = 5;                    // a few seconds to get going before they can bust you
@@ -1136,7 +1150,7 @@ function removeGang() {
   cars = cars.filter(c => !c.gang); bust.t = 0;
 }
 function gangDrive(car, dt) {
-  const pz = position + PLAYER_Z, L = lenOf('truck'), half = (L + lenOf('player')) / 2, dz = zDelta(car.z - pz);
+  const pz = position + PLAYER_Z, L = lenOf('pickup'), half = (L + lenOf('player')) / 2, dz = zDelta(car.z - pz);
   let role = car.role, toff = playerX, tz = 0;
   if (role === 'pinL' && playerX - 0.55 < -0.92) role = 'ram';        // no room to pin on that side: come from behind
   if (role === 'pinR' && playerX + 0.55 > 0.92) role = 'ram';
@@ -2109,7 +2123,7 @@ function update(dt) {
     score += dt * speed / 100 * (offroad ? 0.25 : 1);
     if (!ERAS[era].bonus) timeLeft -= dt;
     else {                                                            // WANTED: crawl with a gang truck on you and you're busted
-      const near = cars.some(c => c.gang && Math.abs(zDelta(c.z - (position + PLAYER_Z))) < lenOf('truck') * 2.5);
+      const near = cars.some(c => c.gang && Math.abs(zDelta(c.z - (position + PLAYER_Z))) < lenOf('pickup') * 2.5);
       if (bust.grace > 0) bust.grace -= dt;
       else if (near && speed < MAX_SPEED * 0.12) bust.t += dt; else bust.t = Math.max(0, bust.t - dt * 1.5);
       if (bust.t > 1.4) { startBusted(); return; }
@@ -2176,7 +2190,7 @@ function announceEra() {
 
 // ---- vehicle lengths (world units): real lengths in the 3D era, sprite-ish depth in the 2D eras ----
 const LANES3 = [-2/3, 0, 2/3];
-const lenOf = (type) => R3.active ? ({ truck: 7.2, van: 4.95, sedan: 4.75, sport: 4.45, player: 4.45 }[type] || 4.5) / M3 : (type === 'truck' ? 520 : 400);
+const lenOf = (type) => R3.active ? ({ truck: 7.2, van: 4.95, sedan: 4.75, sport: 4.45, pickup: 5.4, player: 4.45 }[type] || 4.5) / M3 : (type === 'truck' ? 520 : type === 'pickup' ? 450 : 400);
 const zDelta = (dz) => { dz = wrap(dz + trackLength / 2, trackLength); return dz - trackLength / 2; };   // shortest signed distance along the loop
 function syncCarSeg(car) {
   const seg = findSegment(car.z); car.percent = (car.z % SEG_LEN) / SEG_LEN;
@@ -2983,6 +2997,28 @@ function build3D(T, A) {
     const P = { body: [], glass: [], tyre: [], rim: [], tail: [], trim: [], plate: [], chrome: [], lens: [], caliper: [], carbon: [] };
     const wheels = [];
     let sp = SPECS[type], L, W, R, tw, wus, rearZ, faceTop, faceBot, hwRear;
+    if (type === 'pickup') {                         // the gang's pickup: cab, open load bed, tailgate, light bar, push bar
+      L = 5.4; W = 2.0; R = 0.42; tw = 0.3; wus = [0.17, 0.79];
+      const ex = (pts, width) => { const sh = new T.Shape(); sh.moveTo(pts[0][0], pts[0][1]); pts.slice(1).forEach(q => sh.lineTo(q[0], q[1])); sh.closePath();
+        return new T.ExtrudeGeometry(sh, { depth: width - 0.12, bevelEnabled: true, bevelThickness: 0.06, bevelSize: 0.05, bevelSegments: 3 }).translate(0, 0, -(width - 0.12) / 2).rotateY(Math.PI / 2); };
+      P.body.push(ex([[2.7, 0.55], [2.72, 1.05], [1.55, 1.18], [1.05, 1.86], [-0.3, 1.9], [-0.45, 1.8], [-0.45, 0.55]], W));   // bonnet + cab
+      P.body.push(new T.BoxGeometry(W, 0.32, 2.3).translate(0, 0.52, 1.55));                                  // bed body
+      P.body.push(new T.BoxGeometry(W - 0.1, 0.06, 2.2).translate(0, 0.7, 1.55));                             // bed floor
+      for (const sd of [-1, 1]) P.body.push(new T.BoxGeometry(0.1, 0.5, 2.3).translate(sd * (W / 2 - 0.05), 0.93, 1.55));   // bed sides
+      P.body.push(new T.BoxGeometry(W - 0.02, 0.55, 0.1).translate(0, 0.93, 2.68));                           // tailgate
+      P.glass.push(new T.BoxGeometry(1.55, 0.48, 0.04).translate(0, 1.55, 0.47));                              // rear cab window
+      P.glass.push(new T.BoxGeometry(1.7, 0.55, 0.04).rotateX(0.55).translate(0, 1.5, -1.3));                 // windscreen
+      for (const sd of [-1, 1]) P.glass.push(new T.BoxGeometry(0.04, 0.42, 1.0).translate(sd * (W / 2 - 0.02), 1.52, -0.4));
+      P.trim.push(new T.BoxGeometry(1.5, 0.1, 0.25).translate(0, 1.98, -0.2));                                 // roof light bar
+      for (const x of [-0.45, 0.45]) P.tail.push(new T.BoxGeometry(0.28, 0.06, 0.04).translate(x, 1.98, -0.33));   // its lamps (glow)
+      P.chrome.push(new T.BoxGeometry(1.6, 0.08, 0.08).translate(0, 1.12, -2.85), new T.BoxGeometry(1.6, 0.08, 0.08).translate(0, 0.62, -2.85));   // push bar
+      for (const x of [-0.6, 0.6]) P.chrome.push(new T.BoxGeometry(0.08, 0.6, 0.08).translate(x, 0.87, -2.85));
+      P.trim.push(new T.BoxGeometry(W + 0.05, 0.18, 0.18).translate(0, 0.45, 2.78));                          // rear step bumper
+      for (const sd of [-1, 1]) { P.tail.push(new T.BoxGeometry(0.1, 0.32, 0.05).translate(sd * (W / 2 - 0.08), 0.98, 2.74)); P.lens.push(new T.BoxGeometry(0.14, 0.38, 0.04).translate(sd * (W / 2 - 0.08), 0.98, 2.73)); }
+      P.plate.push(new T.BoxGeometry(0.5, 0.12, 0.03).translate(0, 0.78, 2.75));
+      for (const wu of wus) for (const sd of [-1, 1]) wheels.push({ ...wheelGeo(R, tw, sd, 6, false), ctr: new T.Vector3(sd * (W / 2 - tw / 2 + 0.02), R, -L / 2 + wu * L) });
+      return { P, wheels, L };
+    }
     if (type === 'truck') {
       L = 7.2; W = 2.35; R = 0.48; tw = 0.3; wus = [0.15, 0.82];
       const cab = { L: 2.3, W: 2.3, noseMin: 0.7, tailMin: 0.95, n: 8, nTop: 5, nBot: 9, tumble: 0.04,
@@ -3107,7 +3143,7 @@ function build3D(T, A) {
   const detailKeys = ['glass', 'tyre', 'rim', 'tail', 'trim', 'plate', 'chrome', 'lens', 'caliper', 'carbon'];
   const carModels = {};
   const tiny = () => ni(new T.BoxGeometry(0.001, 0.001, 0.001));
-  for (const type of ['sport', 'sedan', 'van', 'truck']) {
+  for (const type of ['sport', 'sedan', 'van', 'truck', 'pickup']) {
     const cp = carParts(type, false);
     cp.wheels.forEach(w => { cp.P.tyre.push(w.tyre.clone().translate(w.ctr.x, w.ctr.y, w.ctr.z)); cp.P.rim.push(w.rim.clone().translate(w.ctr.x, w.ctr.y, w.ctr.z), w.disc.clone().translate(w.ctr.x, w.ctr.y, w.ctr.z)); });
     const body = A.mergeGeometries(cp.P.body.map(ni));
@@ -3572,7 +3608,7 @@ async function startGame() {
   if (qs > 1 && qs <= N_STAGES) { const i = segments.findIndex(sg => sg.stage === qs - 1); position = i * SEG_LEN; curStage = themeFrom = themeTo = stagesCleared = qs - 1; }
   lap = 0;
   const qe = parseInt(new URLSearchParams(location.search).get('era'), 10);
-  if (qe > 1 && qe <= N_ERAS) lap = qe - 1;
+  if (qe > 1 && qe <= N_ERAS) lap = ERA_ORDER.indexOf(qe - 1);
   setEra(eraForLap(lap)); announceEra();
   trafficLevel = Math.floor(lap / ERA_CYCLE);
   resetCars();
