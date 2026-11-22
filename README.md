@@ -4,8 +4,9 @@ An arcade sunset driving game in a single HTML file, built for phones. You steer
 
 ## A drive through gaming time
 The circuit has seven stages — Coastline, Desert Run, Alpine Pass, Downtown Rain, Beachfront, Sunset Blvd and Neon City.
-Every full lap moves the graphics and music one era along — up to HD and back down, and each cycle ends with the
-WANTED survival lap (EGA → Amiga → VGA → SVGA → HD → SVGA → VGA → Amiga → **WANTED** → EGA …):
+Every full lap moves the graphics and music one era along — up to HD and back down again, and every run in either
+direction ends with the WANTED survival lap (EGA → Amiga → VGA → SVGA → HD → **WANTED** → SVGA → VGA → Amiga → EGA →
+**WANTED** → Amiga → …):
 
 | Lap | Era | Look |
 |---|---|---|
@@ -15,8 +16,8 @@ WANTED survival lap (EGA → Amiga → VGA → SVGA → HD → SVGA → VGA → 
 | 4 | 1996 · SVGA | 480 lines, smooth scaling, shaded sprites and true colour |
 | 5 | Today · HD | **real-time 3D** (three.js / WebGL): a glTF hero car (metallic-flake clearcoat paint, real wheels and interior), modelled traffic with clearcoat paint and reflections, 3D palms, pines, cacti, rocks, billboards, street lamps and lit skyscrapers, sun lighting with soft shadows, fog, filmic tone mapping, bloom and a chase camera |
 
-Each full era cycle (9 laps, back to EGA) adds 20% more traffic, driving 20% faster. Checkpoint time bonuses start at
-45 s and ease off by just 2 s per lap, never dropping below 32 s. The 3D engine downloads in the background after the page loads (from jsDelivr); if WebGL isn't available the HD era falls back to the 2D renderer. The title screen cycles through all five eras.
+Every WANTED lap you survive adds 20% more traffic, driving 20% faster. Checkpoint time bonuses start at 45 s and
+drop by 1 s per checkpoint, never below 28 s. The 3D engine downloads in the background after the page loads (from jsDelivr); if WebGL isn't available the HD era falls back to the 2D renderer. The title screen cycles through all five eras.
 
 ## Sound through the eras
 The audio hardware evolves with the graphics (all synthesised live in the browser):
@@ -39,15 +40,15 @@ In the tracker/synth eras the score reacts to the game, in the spirit of LucasAr
   new arrangement enters at the top of a phrase. Game over ends on a final chord.
 
 ## WANTED bonus lap
-Each era cycle ends with a survival lap in the HD renderer. The clock is frozen and replaced by your lap progress, and a
+Each run of eras, up or down, ends with a survival lap in the HD renderer. The clock is frozen and replaced by your lap progress, and a
 gang of black pickup trucks is out for your car. They only catch up with you 75% of the way round the first time —
-then 20% earlier on each later cycle (down to 15%). Once they're out they drive like slow traffic ahead of you, staggered across the lanes,
+then 20% earlier on each WANTED lap after that (down to 15%). Once they're out they drive like slow traffic ahead of you, staggered across the lanes,
 drifting into your line as you close in — weave past at speed and they can't touch you. Slow down and the nearby ones
 switch to boxing you in: one gets in front and brake-checks, the others pull alongside. Get boxed in (a pickup in
 front, another beside you or the road edge) at low speed and you're **BUSTED**: a 3D cutscene plays out where you
 stopped — the gang climb out, haul you onto the tarmac, bash you with baseball caps and wheelspin off in your car
 (game over). Get back up to speed and you break free. Finish the lap for
-+25,000 points and +20 s, and a new, busier cycle starts back in 1987. Start straight in it with `?era=6`.
++25,000 points and +20 s, and the eras head off the other way with busier traffic. Start straight in it with `?era=6`.
 
 ## Time bonus & traffic
 - When the clock drops below 10 seconds, a glowing **+20 s stopwatch** drops onto the road ahead at a random moment

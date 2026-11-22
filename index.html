@@ -1116,10 +1116,12 @@ function buildTrack() {
   }
 }
 
-// ---- difficulty: each full era cycle (up to HD and back to EGA) brings 20% more traffic, 20% faster ----
-// 9 laps: EGA Amiga VGA SVGA HD SVGA VGA Amiga, then the WANTED survival challenge ends the cycle | EGA ...
-const ERA_ORDER = [0, 1, 2, 3, 4, 3, 2, 1, 5], ERA_CYCLE = ERA_ORDER.length;
-const eraForLap = (l) => ERA_ORDER[l % ERA_CYCLE];
+// ---- era sequence: the eras climb to HD and fall back to EGA, and every run (up or down) ends with the
+// WANTED survival lap. Each WANTED lap survived brings 20% more traffic, 20% faster.
+// EGA Amiga VGA SVGA HD WANTED | SVGA VGA Amiga EGA WANTED | Amiga VGA SVGA HD WANTED | SVGA ... EGA WANTED | ...
+const WANTED_ERA = 5, ERA_FIRST = [0, 1, 2, 3, 4, 5], ERA_LOOP = [3, 2, 1, 0, 5, 1, 2, 3, 4, 5];
+const eraForLap = (l) => l < ERA_FIRST.length ? ERA_FIRST[l] : ERA_LOOP[(l - ERA_FIRST.length) % ERA_LOOP.length];
+const wantedBefore = (l) => { let n = 0; for (let i = 0; i < l; i++) if (eraForLap(i) === WANTED_ERA) n++; return n; };
 const MAX_CARS = 150, TRAFFIC_TOP = 0.8;                // keep the car count phone-friendly and traffic slower than you
 let trafficLevel = 0;
 const trafficScale = () => Math.pow(1.2, trafficLevel);
@@ -1150,7 +1152,7 @@ function spawnGang() {
   bust.t = 0; bust.grace = 3;
 }
 // The gang turns up late in the lap the first time (75% round), and 20% earlier on every later cycle.
-const gangArrivalPoint = () => Math.max(0.15, 0.75 - 0.2 * Math.floor(lap / ERA_CYCLE));
+const gangArrivalPoint = () => Math.max(0.15, 0.75 - 0.2 * wantedBefore(lap));
 function gangIncoming() {
   removeGang(); bust.arriveAt = gangArrivalPoint(); bust.warned = false;
   toast('A GANG IS HUNTING FOR YOUR CAR — FINISH THE LAP!');
@@ -1217,7 +1219,7 @@ function gangNearness() {                    // 0..1: how hard the gang is press
   }
   return best;
 }
-function raiseTraffic() {                               // called when a full era cycle completes
+function raiseTraffic() {                               // called after each WANTED lap survived
   trafficLevel++;
   const R = rng((Math.random() * 1e9) | 0);
   for (const c of cars) { c.speed0 = Math.min(TRAFFIC_TOP * MAX_SPEED, c.speed0 * 1.2); c.speed = Math.min(c.speed, c.speed0); }
@@ -2189,15 +2191,15 @@ function update(dt) {
       stagesCleared++;
       const wasWanted = !!ERAS[era].bonus;
       if (wrapped) lap++;
-      const bonus = Math.max(32, 45 - lap * 2);                // eases off gently: 2 s less per lap, never below 32 s
+      const bonus = Math.max(28, 46 - stagesCleared);          // 1 s less per checkpoint, never below 28 s
       timeLeft += bonus; score += 2500 * stagesCleared;
       setMsg(wrapped ? 'LAP ' + lap + ' COMPLETE!' : 'CHECKPOINT!', '+' + bonus + ' SEC  ·  ' + THEMES[curStage].name); msgTimer = 2.5;
       sfxCheckpoint();
       // each lap moves one era along: up to HD, then back down to EGA, and round again
       if (wrapped && setEra(eraForLap(lap))) announceEra();
-      if (wrapped && wasWanted) { removeGang(); score += 25000; timeLeft += 20; setMsg('YOU SURVIVED!', '+25,000 &middot; +20 SEC'); msgTimer = 3; }
+      if (wrapped && wasWanted) { removeGang(); score += 25000; timeLeft += 20; setMsg('YOU SURVIVED!', '+25,000 &middot; +20 SEC'); msgTimer = 3;
+        raiseTraffic(); toast('TRAFFIC +20% · SPEED +20%'); }
       if (wrapped && ERAS[era].bonus) gangIncoming();
-      if (wrapped && lap % ERA_CYCLE === 0) { raiseTraffic(); toast('FULL ERA CYCLE! TRAFFIC +20% · SPEED +20%'); }
     }
   }
   if (themeBlend < 1) themeBlend = Math.min(1, themeBlend + dt / 2.5);
@@ -3780,9 +3782,9 @@ async function startGame() {
   if (qs > 1 && qs <= N_STAGES) { const i = segments.findIndex(sg => sg.stage === qs - 1); position = i * SEG_LEN; curStage = themeFrom = themeTo = stagesCleared = qs - 1; }
   lap = 0;
   const qe = parseInt(new URLSearchParams(location.search).get('era'), 10);
-  if (qe > 1 && qe <= N_ERAS) lap = ERA_ORDER.indexOf(qe - 1);
+  if (qe > 1 && qe <= N_ERAS) { lap = 0; while (eraForLap(lap) !== qe - 1) lap++; }
   setEra(eraForLap(lap)); announceEra();
-  trafficLevel = Math.floor(lap / ERA_CYCLE);
+  trafficLevel = wantedBefore(lap);
   resetCars();
   if (ERAS[era].bonus) gangIncoming();
   resetConductor();
