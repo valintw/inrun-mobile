@@ -39,7 +39,7 @@ In the tracker/synth eras the score reacts to the game, in the spirit of LucasAr
   new arrangement enters at the top of a phrase. Game over ends on a final chord.
 
 ## WANTED bonus lap
-Each era cycle ends with a survival lap in the HD renderer, with sirens and police lights. The clock is frozen and
+Each era cycle ends with a survival lap in the HD renderer. You get a few seconds' head start, then you hear them coming. The clock is frozen and
 replaced by your lap progress, and a gang of black pickup trucks works together to box you in — one gets in front and
 brake-checks, two pull alongside, one lurks in the next lane and swerves into you. Crawl along with a truck on you for
 too long and you're **BUSTED**: they haul you out, bash you with baseball caps and drive off in your car (game over).

@@ -48,8 +48,7 @@
   @keyframes flash { 0% { opacity:.95; } 100% { opacity:0; } }
   /* WANTED bonus era */
   #sirenFx { position:fixed; inset:0; pointer-events:none; z-index:2; opacity:0; }
-  #sirenFx.red  { background: radial-gradient(ellipse at 0% 50%, rgba(255,30,40,.55), transparent 45%), radial-gradient(ellipse at 100% 50%, rgba(255,30,40,.25), transparent 40%); }
-  #sirenFx.blue { background: radial-gradient(ellipse at 100% 50%, rgba(40,90,255,.55), transparent 45%), radial-gradient(ellipse at 0% 50%, rgba(40,90,255,.25), transparent 40%); }
+  #sirenFx { background: radial-gradient(ellipse at 50% 55%, transparent 45%, rgba(150,0,0,.6) 100%); }
   #cut { position:fixed; inset:0; width:100%; height:100%; z-index:9; display:none; }
   #boxed { position:absolute; left:50%; top:24%; transform:translateX(-50%); font-size:clamp(14px,3vw,26px); color:#ff3b3b; display:none; text-align:center; animation:blink .35s steps(2) infinite; }
   #boxed i { display:block; height:8px; margin-top:8px; background:#ff3b3b; width:0; }
@@ -1137,7 +1136,7 @@ const GANG_CI = 10;
 const bust = { t: 0 };
 function spawnGang() {
   removeGang();
-  const pz = position + PLAYER_Z, roles = [['block', 40], ['pinL', -28], ['pinR', -36], ['ram', -46]];
+  const pz = position + PLAYER_Z, roles = [['block', -62], ['pinL', -70], ['pinR', -76], ['ram', -84]];   // out of sight behind you
   roles.forEach(([role, segs], k) => {
     const z = wrap(pz + segs * SEG_LEN, trackLength), offset = role === 'pinL' ? -0.66 : role === 'pinR' ? 0.66 : (k % 2 ? 0.66 : -0.66);
     const car = { offset, target: offset, z, ci: GANG_CI, speed: speed, speed0: MAX_SPEED * 0.95, vx: 0, percent: 0, w: SPR_LO.cars[GANG_CI].worldW / ROAD_W, timer: 99, type: 'pickup', gang: true, role };
@@ -1145,9 +1144,13 @@ function spawnGang() {
   });
   bust.t = 0; bust.grace = 5;                    // a few seconds to get going before they can bust you
 }
+function gangIncoming() {                       // WANTED lap starts: you get a head start before they show up
+  removeGang(); bust.spawnIn = 6;
+  toast('A GANG IS COMING FOR YOUR CAR \u2014 GET GOING!');
+}
 function removeGang() {
   for (const c of cars.filter(c => c.gang)) { const i = c.seg.cars.indexOf(c); if (i >= 0) c.seg.cars.splice(i, 1); }
-  cars = cars.filter(c => !c.gang); bust.t = 0;
+  cars = cars.filter(c => !c.gang); bust.t = 0; bust.spawnIn = 0;
 }
 function gangDrive(car, dt) {
   const pz = position + PLAYER_Z, L = lenOf('pickup'), half = (L + lenOf('player')) / 2, dz = zDelta(car.z - pz);
@@ -1551,9 +1554,10 @@ function initAudio() {
   audio.reverb.buffer = mkBuf(a.sampleRate, 2.2, (t, i, c) => rnd() * Math.pow(1 - t / 2.2, 3.2), 0, 2);
   audio.reverbIn = a.createGain(); audio.reverbIn.gain.value = 0; audio.reverbIn.connect(audio.reverb); audio.reverb.connect(audio.master);
   audio.mp3 = makeJukebox(a);
-  // WANTED siren: a two-tone wail, louder as the gang closes in
-  { const o = a.createOscillator(), f = a.createBiquadFilter(); o.type = 'sawtooth'; f.type = 'lowpass'; f.frequency.value = 2200;
-    audio.sirenO = o; audio.sirenG = a.createGain(); audio.sirenG.gain.value = 0; o.connect(f); f.connect(audio.sirenG); audio.sirenG.connect(audio.master); o.start(); }
+  // WANTED: the gang's big engines growling behind you, louder as they close in
+  { const o = a.createOscillator(), o2 = a.createOscillator(), f = a.createBiquadFilter(); o.type = 'sawtooth'; o2.type = 'square'; f.type = 'lowpass'; f.frequency.value = 320; f.Q.value = 3;
+    o.frequency.value = 46; o2.frequency.value = 23.2;
+    audio.sirenO = o; audio.sirenG = a.createGain(); audio.sirenG.gain.value = 0; o.connect(f); o2.connect(f); f.connect(audio.sirenG); audio.sirenG.connect(audio.master); o.start(); o2.start(); }
   // rain hiss (Sound Blaster era onwards)
   { const s = a.createBufferSource(); s.buffer = mkBuf(a.sampleRate, 2, () => rnd()); s.loop = true;
     const hp = a.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 900;
@@ -2017,8 +2021,9 @@ function updateEngine() {
   const live = state === 'race' || state === 'countdown' || (state === 'over' && speed > 0);
   if (audio.sirenG) {
     const t = audio.ctx.currentTime, on = ERAS[era].bonus && state === 'race' && settings.sound;
-    audio.sirenO.frequency.setTargetAtTime(Math.floor(t * 2.2) % 2 ? 640 : 860, t, 0.02);
-    audio.sirenG.gain.setTargetAtTime(on ? 0.025 + 0.06 * gangNearness() : 0, t, 0.15);
+    const nr = gangNearness();
+    audio.sirenO.frequency.setTargetAtTime(40 + nr * 30 + Math.sin(t * 7) * 3, t, 0.1);       // revving, lumpy V8 burble
+    audio.sirenG.gain.setTargetAtTime(on ? 0.12 * nr : 0, t, 0.2);
   }
   if (audio.rainG) audio.rainG.gain.setTargetAtTime(era >= 2 && live && settings.sound ? rainAmt * 0.11 : 0, audio.ctx.currentTime, 0.3);
   audio.rig.engine(speed / MAX_SPEED, live && settings.sound, Math.max(0, input.throttle), input.steer);
@@ -2124,7 +2129,8 @@ function update(dt) {
     if (!ERAS[era].bonus) timeLeft -= dt;
     else {                                                            // WANTED: crawl with a gang truck on you and you're busted
       const near = cars.some(c => c.gang && Math.abs(zDelta(c.z - (position + PLAYER_Z))) < lenOf('pickup') * 2.5);
-      if (bust.grace > 0) bust.grace -= dt;
+      if (bust.spawnIn > 0) { bust.spawnIn -= dt; if (bust.spawnIn <= 0) { spawnGang(); toast('HERE THEY COME!'); } }
+      else if (bust.grace > 0) bust.grace -= dt;
       else if (near && speed < MAX_SPEED * 0.12) bust.t += dt; else bust.t = Math.max(0, bust.t - dt * 1.5);
       if (bust.t > 1.4) { startBusted(); return; }
     }
@@ -2149,7 +2155,7 @@ function update(dt) {
       // each lap moves one era along: up to HD, then back down to EGA, and round again
       if (wrapped && setEra(eraForLap(lap))) announceEra();
       if (wrapped && wasWanted) { removeGang(); score += 25000; timeLeft += 20; setMsg('YOU SURVIVED!', '+25,000 &middot; +20 SEC'); msgTimer = 3; }
-      if (wrapped && ERAS[era].bonus) spawnGang();
+      if (wrapped && ERAS[era].bonus) gangIncoming();
       if (wrapped && lap % ERA_CYCLE === 0) { raiseTraffic(); toast('FULL ERA CYCLE! TRAFFIC +20% · SPEED +20%'); }
     }
   }
@@ -3507,7 +3513,7 @@ function updateHUD() {
   const bx = $('boxed'); bx.style.display = wanted && bust.t > 0.05 && state === 'race' ? 'block' : 'none';
   if (bust.t > 0.05) bx.querySelector('i').style.width = Math.min(100, bust.t / 1.4 * 100) + '%';
   const fx = $('sirenFx'), near = wanted && state === 'race' ? gangNearness() : 0;
-  fx.style.opacity = (near * 0.9).toFixed(2); fx.className = Math.floor(performance.now() / 230) % 2 ? 'red' : 'blue';
+  fx.style.opacity = (near * (0.75 + 0.25 * Math.sin(performance.now() / 180))).toFixed(2);   // red danger glow, pulsing
   hud.time.classList.toggle('low', timeLeft < 10 && state === 'race');
   setText(hud.stageNum, 'n', String(stagesCleared + 1));
   setText(hud.stageName, 'm', THEMES[curStage].name + ' &middot; ' + ERAS[era].year);
@@ -3612,7 +3618,7 @@ async function startGame() {
   setEra(eraForLap(lap)); announceEra();
   trafficLevel = Math.floor(lap / ERA_CYCLE);
   resetCars();
-  if (ERAS[era].bonus) spawnGang();
+  if (ERAS[era].bonus) gangIncoming();
   resetConductor();
   showPanel(null); setHUD(true);
   $('rotate').style.display = 'none';
