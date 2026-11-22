@@ -1,6 +1,6 @@
 {
  "strings": {
-  "root": 72.1,
+  "root": 84.0,
   "loop": [
    0.44998,
    0.99909
@@ -11,7 +11,7 @@
   "loop": null
  },
  "trumpet": {
-  "root": 69.9,
+  "root": 70.09,
   "loop": [
    0.44998,
    1.00018
@@ -36,7 +36,7 @@
   ]
  },
  "flute": {
-  "root": 84.1,
+  "root": 84.01,
   "loop": [
    0.44998,
    1.00005
@@ -47,32 +47,32 @@
   "loop": null
  },
  "piano": {
-  "root": 61.0,
+  "root": 60.89,
   "loop": null
  },
  "organ": {
-  "root": 60.0,
+  "root": 59.94,
   "loop": [
    0.44998,
    1.00036
   ]
  },
  "sax": {
-  "root": 72.1,
+  "root": 72.01,
   "loop": [
    0.44998,
    0.99909
   ]
  },
  "harmonica": {
-  "root": 72.1,
+  "root": 72.04,
   "loop": [
    0.44998,
    0.99909
   ]
  },
  "vibes": {
-  "root": 84.1,
+  "root": 84.0,
   "loop": null
  },
  "marimba": {
