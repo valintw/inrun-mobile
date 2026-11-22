@@ -1378,10 +1378,11 @@ function makeChan(dest, pan) {
   if (p) { p.pan.value = pan; g.connect(p); p.connect(dest); } else g.connect(dest);
   return {
     src: null, busyUntil: 0,
-    play(buf, rate, vol, t, dur, loop, T) {
+    play(buf, rate, vol, t, dur, loop, T, loopPts) {
       if (this.src) { try { this.src.stop(t); } catch (e) {} }
       const s = a.createBufferSource(), e = a.createGain();
       s.buffer = buf; s.playbackRate.value = rate; s.loop = !!loop;
+      if (loop && loopPts) { s.loopStart = loopPts[0]; s.loopEnd = loopPts[1]; }
       e.gain.setValueAtTime(vol, t); shapeEnv(e.gain, t, vol, T);
       s.connect(e); e.connect(g); s.start(t); this.src = s; this.env = e;
       if (dur) { e.gain.setTargetAtTime(0, t + Math.max(0.01, dur - 0.02), 0.008); s.stop(t + dur + 0.05); }
@@ -1404,6 +1405,31 @@ async function loadSamples() {
     setAudioEra(audio.era);                    // rebuild the current era's rig with the samples
   } catch (e) { console.warn('Sound samples unavailable, using synthesised sounds', e); }
 }
+// ---- sampled real instruments for the tracker eras (CC0: VSCO 2 CE + VCSL; see assets/CREDITS.md) ----
+// Each style gets a "sample disk": [instrument, octave shift] per role. bass: null keeps the synth bass.
+const SAMPLED = {
+  surf:       { lead: ['trumpet', -12], counter: ['vibes', 12],  comp: ['marimba', 12], arp: ['marimba', 0],  bass: ['pizz', 0] },
+  western:    { lead: ['harmonica', -12], counter: ['trumpet', 0], comp: ['harp', 12],  arp: ['harp', 0],     bass: ['pizz', 0] },
+  polka:      { lead: ['clarinet', -12], counter: ['horn', -12],  comp: ['organ', 0],    arp: ['organ', -12], bass: ['tuba', 0] },
+  industrial: { lead: ['orchhit', -12], counter: ['strings', 0],  comp: ['strings', 12], arp: ['orchhit', -12], bass: null },
+  calypso:    { lead: ['marimba', -12], counter: ['flute', 12],   comp: ['harp', 12],    arp: ['vibes', 0],   bass: ['pizz', 0] },
+  synthwave:  { lead: ['sax', -12],     counter: ['strings', 0],  comp: ['strings', 12], arp: ['vibes', 0],   bass: null },
+  techno:     { lead: ['piano', -24],   counter: ['orchhit', 0],  comp: ['piano', 0],    arp: ['piano', -12], bass: null },
+};
+async function loadInstruments() {
+  try {
+    const man = await (await fetch('assets/inst/manifest.json')).json(), out = {};
+    await Promise.all(Object.keys(man).map(async k => {
+      const r = await fetch('assets/inst/' + k + '.wav'); if (!r.ok) throw new Error(k);
+      out[k] = { buf: await audio.ctx.decodeAudioData(await r.arrayBuffer()), root: man[k].root, loop: man[k].loop };
+    }));
+    audio.inst = out;
+    setAudioEra(audio.era);
+  } catch (e) { console.warn('Instrument samples unavailable, using synthesised instruments', e); }
+}
+// pick the sampled instrument for a role in the current style (or null for the synth fallback)
+function instFor(ev, role) { const m = audio.inst && SAMPLED[ev.style] && SAMPLED[ev.style][role]; return m ? { ...audio.inst[m[0]], shift: m[1], name: m[0] } : null; }
+
 // downsample + 8-bit quantise a sample, the way it would sit in Amiga / Sound Blaster memory
 function crunch(buf, rate, maxSecs) {
   const src = buf.getChannelData(0), full = Math.round(src.length * rate / buf.sampleRate);
@@ -1441,6 +1467,7 @@ function initAudio() {
   setInterval(musicTick, 25);
   setAudioEra(era);
   loadSamples();
+  loadInstruments();
 }
 function setSound(on) { settings.sound = on; store('inrun_snd', on ? '1' : '0'); if (audio.master) audio.master.gain.value = on ? 0.7 : 0; }
 
@@ -1496,6 +1523,7 @@ function rigAmiga() {
   if (sm) Object.assign(S, { kick: crunch(sm.kick, 12000), snare: crunch(sm.snare, 12000), hat: crunch(sm.hat, 12000), ohat: crunch(sm.ohat, 12000, 0.3),
                               engine: crunch(sm.engine_lo, R), crash: crunch(sm.crash, R, 1.2) });
   const ENG_BASE = sm ? ENG_LO_HZ : 64;
+  const paulaCache = {}, paulaBuf = (I) => paulaCache[I.name] || (paulaCache[I.name] = crunch(I.buf, 16726, I.loop ? I.loop[1] + 0.02 : 1.0));
   const cycCache = {}, cyc = (tb) => cycCache[tb] || (cycCache[tb] = (() => {        // 64-sample 8-bit instrument waves
     const f = harmonics(TIMBRES[tb].h); let mx = 0; for (let i = 0; i < 64; i++) mx = Math.max(mx, Math.abs(f(i / 64)));
     return cycleBuf(R, 64, x => f(x) / mx * 0.9, 8); })());
@@ -1505,13 +1533,22 @@ function rigAmiga() {
   return {
     music(ev, t) {                                         // 3 music channels: bass / melody / drums
       const v = ev.vel, cr = (n) => midi(n) / (R / 64);
-      if (ev.bass) ch[0].play(cyc(ev.bass.tb), cr(ev.bass.n), 0.5 * v, t, ev.bass.len, true, TIMBRES[ev.bass.tb]);
+      // play a role on a channel: the style's sampled instrument (8-bit, ~16.7 kHz, as in Paula memory) or the synth wave
+      const play = (c, role, part, n, vol, dur) => {
+        const I = instFor(ev, role);
+        if (I) { const b = paulaBuf(I); const r = Math.pow(2, (n + I.shift - I.root) / 12) * I.buf.sampleRate / b.sampleRate;
+          return c.play(b, r, vol * 1.25, t, I.loop ? dur : Math.max(dur, 0.35), !!I.loop, null, I.loop); }
+        return c.play(cyc(part.tb), cr(n), vol, t, dur, true, TIMBRES[part.tb]);
+      };
+      if (ev.bass) play(ch[0], 'bass', ev.bass, ev.bass.n, 0.5 * v, ev.bass.len);
       const mel = ev.lead || ev.counter;
-      if (mel) ch[1].play(cyc(mel.tb), cr(mel.n), 0.32 * v, t, mel.len * 0.95, true, TIMBRES[mel.tb]);
-      else if (ev.arp) ch[1].play(cyc(ev.arp.tb), cr(ev.arp.n), 0.2 * v, t, ev.stepT * 0.9, true, TIMBRES[ev.arp.tb]);
+      if (mel) play(ch[1], ev.lead ? 'lead' : 'counter', mel, mel.n, 0.32 * v, mel.len * 0.95);
+      else if (ev.arp) play(ch[1], 'arp', ev.arp, ev.arp.n, 0.2 * v, ev.stepT * 0.9);
       else if (ev.comp) {                                    // chords on one channel: the tracker "0xy" arpeggio effect
-        const s2 = ch[1].play(cyc(ev.comp.tb), cr(ev.comp.notes[0]), 0.22 * v, t, ev.comp.len, true, TIMBRES[ev.comp.tb]);
-        for (let k = 1, tt = t + 0.02; tt < t + ev.comp.len; k++, tt += 0.02) s2.playbackRate.setValueAtTime(cr(ev.comp.notes[k % 3]), tt);
+        const I = instFor(ev, 'comp');
+        const s2 = play(ch[1], 'comp', ev.comp, ev.comp.notes[0], 0.22 * v, ev.comp.len);
+        const rateOf = n => I ? Math.pow(2, (n + I.shift - I.root) / 12) * I.buf.sampleRate / paulaBuf(I).sampleRate : cr(n);
+        for (let k = 1, tt = t + 0.02; tt < t + ev.comp.len; k++, tt += 0.02) s2.playbackRate.setValueAtTime(rateOf(ev.comp.notes[k % 3]), tt);
       }
       if (ev.kick) ch[2].play(S.kick, 1, 0.8 * v, t);
       else if (ev.snare) ch[2].play(S.snare, 1, 0.6 * v, t);
@@ -1663,11 +1700,24 @@ function rigGUS(hd) {
   return {
     music(ev, t) {                                         // many 16-bit voices, panned across the stereo field
       const v = ev.vel;
-      if (ev.bass) { note(ev.bass.tb, ev.bass.n, t, ev.bass.len * 0.9, 0.3 * v, 0); if (hd && ev.lvl >= 2) note(ev.bass.tb, ev.bass.n - 12, t, ev.bass.len * 0.9, 0.16 * v, 0); }
-      if (ev.lead) { const n1 = note(ev.lead.tb, ev.lead.n, t, ev.lead.len * 0.92, 0.15 * v, -0.2); n1.g.connect(dIn); if (TIMBRES[ev.lead.tb].env === 'sus' && !TIMBRES[ev.lead.tb].mus) note(ev.lead.tb, ev.lead.n + 0.07, t, ev.lead.len * 0.92, 0.1 * v, 0.25); }
-      if (ev.counter) note(ev.counter.tb, ev.counter.n, t, ev.counter.len * 0.95, 0.1 * v, 0.45);
-      if (ev.arp) note(ev.arp.tb, ev.arp.n, t, ev.stepT * 0.8, (ev.lead ? 0.05 : 0.08) * v, ev.i % 2 ? 0.6 : -0.6);
-      if (ev.comp) ev.comp.notes.forEach((n, k) => note(ev.comp.tb, n, t, ev.comp.len, 0.05 * v, k - 1));
+      // a role's note: the style's sampled instrument if loaded, else the synth timbre
+      const play = (role, part, n, dur, vol, pan) => {
+        const I = instFor(ev, role);
+        if (!I) return note(part.tb, n, t, dur, vol, pan);
+        const s = a.createBufferSource(), g = a.createGain(), p = a.createStereoPanner ? a.createStereoPanner() : null;
+        s.buffer = I.buf; s.playbackRate.value = Math.pow(2, (n + I.shift - I.root) / 12);
+        if (I.loop) { s.loop = true; s.loopStart = I.loop[0]; s.loopEnd = I.loop[1]; }
+        const vv = vol * 1.6, end = I.loop ? dur : Math.max(dur, 0.6);
+        g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vv, t + 0.006); g.gain.setTargetAtTime(0, t + end, I.loop ? 0.07 : 0.15);
+        s.connect(g); if (p) { p.pan.value = pan; g.connect(p); p.connect(bus); } else g.connect(bus);
+        s.start(t); s.stop(t + end + 0.8);
+        return { s, g };
+      };
+      if (ev.bass) { play('bass', ev.bass, ev.bass.n, ev.bass.len * 0.9, 0.3 * v, 0); if (hd && ev.lvl >= 2 && !instFor(ev, 'bass')) note(ev.bass.tb, ev.bass.n - 12, t, ev.bass.len * 0.9, 0.16 * v, 0); }
+      if (ev.lead) { const n1 = play('lead', ev.lead, ev.lead.n, ev.lead.len * 0.92, 0.15 * v, -0.2); n1.g.connect(dIn); if (!instFor(ev, 'lead') && TIMBRES[ev.lead.tb].env === 'sus' && !TIMBRES[ev.lead.tb].mus) note(ev.lead.tb, ev.lead.n + 0.07, t, ev.lead.len * 0.92, 0.1 * v, 0.25); }
+      if (ev.counter) play('counter', ev.counter, ev.counter.n, ev.counter.len * 0.95, 0.1 * v, 0.45);
+      if (ev.arp) play('arp', ev.arp, ev.arp.n, ev.stepT * 0.8, (ev.lead ? 0.05 : 0.08) * v, ev.i % 2 ? 0.6 : -0.6);
+      if (ev.comp) ev.comp.notes.forEach((n, k) => play('comp', ev.comp, n, ev.comp.len, 0.05 * v, k - 1));
       if (ev.kick) voice(S.kick, 1, (hd ? 0.95 : 0.8) * v, t, 0, 0);
       if (ev.snare) { const sn = voice(S.snare, 1, 0.55 * v, t, 0, 0.1); if (ev.big) sn.g.connect(audio.reverbIn); }
       if (ev.clap) { voice(S.snare, 1.2, 0.4 * v, t, 0, -0.15); voice(S.snare, 1.25, 0.35 * v, t + 0.012, 0, 0.15); }
