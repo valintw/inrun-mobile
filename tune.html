@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>InRun Tuner</title>
+<style>
+  :root { --bg:#10121a; --panel:#1a1d29; --line:#2b3044; --text:#e9ecf5; --dim:#9aa3bd; --accent:#ffd23f; --cyan:#3df2ff; --warn:#ff7a59; }
+  @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --bg:#f3f4f8; --panel:#fff; --line:#d9dce6; --text:#151826; --dim:#5b6380; --accent:#b8860b; --cyan:#0a7f8c; --warn:#c2410c; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  main { max-width:880px; margin:0 auto; padding:20px 16px 60px; }
+  h1 { font-size:22px; margin:0 0 4px; } h1 span { color:var(--accent); }
+  p.lead { color:var(--dim); margin:0 0 16px; }
+  .bar { position:sticky; top:0; z-index:2; background:var(--bg); padding:10px 0; border-bottom:1px solid var(--line); margin-bottom:14px; display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  button, select { font:inherit; color:var(--text); background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:7px 11px; cursor:pointer; }
+  button:hover { border-color:var(--cyan); } button.on { background:var(--cyan); color:#000; border-color:var(--cyan); }
+  button.primary { background:var(--accent); color:#000; border-color:var(--accent); font-weight:600; }
+  .seg { display:inline-flex; } .seg button { border-radius:0; } .seg button:first-child { border-radius:8px 0 0 8px; } .seg button:last-child { border-radius:0 8px 8px 0; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:10px; }
+  .card.changed { border-color:var(--accent); }
+  .head { display:flex; flex-wrap:wrap; justify-content:space-between; gap:6px; align-items:baseline; }
+  .name { font-weight:700; font-size:17px; text-transform:capitalize; }
+  .uses { color:var(--dim); font-size:12.5px; }
+  .row { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; align-items:center; }
+  .sl { display:grid; grid-template-columns:72px 1fr 64px; gap:8px; align-items:center; margin-top:8px; }
+  .sl label { color:var(--dim); font-size:13px; } .sl output { font-variant-numeric:tabular-nums; text-align:right; }
+  input[type=range] { width:100%; accent-color:var(--accent); }
+  .total { font-variant-numeric:tabular-nums; color:var(--accent); font-weight:600; }
+  #msg { color:var(--cyan); font-size:13px; min-height:1.2em; }
+  textarea { width:100%; min-height:70px; background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:8px; font:12px ui-monospace, monospace; padding:8px; }
+  a { color:var(--cyan); }
+</style>
+</head>
+<body>
+<main>
+  <h1>In<span>Run</span> instrument tuner</h1>
+  <p class="lead">Turn on the <b>A drone</b>, then play each instrument against it and nudge the sliders until it sits in tune.
+    Your settings save on this device and the game uses them straight away (reload the game). Press <b>Copy settings</b> and paste them back to make them permanent.</p>
+
+  <div class="bar">
+    <button id="drone">A drone: off</button>
+    <span class="seg" id="mode"><button data-m="gus" class="on">Gravis (clean)</button><button data-m="amiga">Amiga (8-bit)</button></span>
+    <button class="primary" id="copy">Copy settings</button>
+    <button id="reset">Reset all</button>
+    <a href="index.html">Back to the game</a>
+    <div id="msg" style="flex-basis:100%"></div>
+  </div>
+
+  <div id="list">Loading samples…</div>
+  <p class="uses">Settings text (what <b>Copy settings</b> copies):</p>
+  <textarea id="out" readonly></textarea>
+</main>
+<script>
+// which instrument plays what in the game (style: role -> [instrument, octave shift]) — mirrors SAMPLED in index.html
+const SAMPLED = {
+  surf:       { lead: ['trumpet', -12], counter: ['vibes', 12],  comp: ['marimba', 12], arp: ['marimba', 0],  bass: ['pizz', 0] },
+  western:    { lead: ['harmonica', -12], counter: ['trumpet', 0], comp: ['harp', 12],  arp: ['harp', 0],     bass: ['pizz', 0] },
+  polka:      { lead: ['clarinet', -12], counter: ['horn', -12],  comp: ['organ', 0],    arp: ['organ', -12], bass: ['tuba', 0] },
+  industrial: { lead: ['orchhit', -12], counter: ['strings', 0],  comp: ['strings', 12], arp: ['orchhit', -12], bass: null },
+  calypso:    { lead: ['marimba', -12], counter: ['flute', 12],   comp: ['harp', 12],    arp: ['vibes', 0],   bass: ['pizz', 0] },
+  synthwave:  { lead: ['sax', -12],     counter: ['strings', 0],  comp: ['strings', 12], arp: ['vibes', 0],   bass: null },
+  techno:     { lead: ['piano', -24],   counter: ['orchhit', 0],  comp: ['piano', 0],    arp: ['piano', -12], bass: null },
+};
+const STAGE = { surf: 'Coastline', western: 'Desert Run', polka: 'Alpine Pass', industrial: 'Downtown Rain', calypso: 'Beachfront', synthwave: 'Sunset Blvd', techno: 'Neon City' };
+// the note each role typically plays in the game (before the instrument's octave shift): A in that register
+const ROLE_A = { bass: 33, lead: 81, counter: 69, comp: 69, arp: 81 };
+const KEY = 'inrun_tune';
+const load = () => { try { return JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { return {}; } };
+const save = t => { try { localStorage.setItem(KEY, JSON.stringify(t)); } catch (e) {} };
+let tune = load(), man = null, bufs = {}, crunched = {}, ctx = null, mode = 'gus', drone = null;
+const $ = id => document.getElementById(id);
+const midi = n => 440 * Math.pow(2, (n - 69) / 12);
+const msg = t => { $('msg').textContent = t; };
+
+function ac() {
+  if (!ctx) {
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    ctx.master = ctx.createGain(); ctx.master.gain.value = 0.8; ctx.master.connect(ctx.destination);
+  }
+  if (ctx.state === 'suspended') ctx.resume();
+  return ctx;
+}
+function crunch(buf) {                      // the Amiga era's copy: 16.7 kHz, 8-bit
+  const rate = 16726, src = buf.getChannelData(0), len = Math.round(src.length * rate / buf.sampleRate);
+  const b = ctx.createBuffer(1, len, rate), d = b.getChannelData(0), step = src.length / len;
+  for (let i = 0; i < len; i++) d[i] = Math.round(src[Math.min(src.length - 1, Math.floor(i * step))] * 127) / 127;
+  return b;
+}
+function playNote(name, n, t, dur, vol = 0.7) {
+  const a = ac(), m = man[name], buf = mode === 'amiga' ? (crunched[name] ||= crunch(bufs[name])) : bufs[name];
+  const root = m.root - (+tune[name] || 0);
+  const s = a.createBufferSource(), g = a.createGain();
+  s.buffer = buf; s.playbackRate.value = Math.pow(2, (n - root) / 12);
+  if (m.loop) { s.loop = true; s.loopStart = m.loop[0]; s.loopEnd = m.loop[1]; }
+  g.gain.setValueAtTime(vol, t); g.gain.setTargetAtTime(0, t + dur - 0.03, 0.03);
+  s.connect(g); g.connect(a.master); s.start(t); s.stop(t + dur + 0.3);
+}
+function sine(n, t, dur, vol = 0.25) {
+  const a = ac(), o = a.createOscillator(), g = a.createGain();
+  o.frequency.value = midi(n); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + 0.02); g.gain.setTargetAtTime(0, t + dur - 0.05, 0.03);
+  o.connect(g); g.connect(a.master); o.start(t); o.stop(t + dur + 0.3);
+}
+function toggleDrone() {
+  const a = ac();
+  if (drone) { drone.g.gain.setTargetAtTime(0, a.currentTime, 0.05); const d = drone; setTimeout(() => d.oscs.forEach(o => o.stop()), 300); drone = null; }
+  else {
+    const g = a.createGain(), f = a.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1200;
+    g.gain.value = 0; g.gain.setTargetAtTime(0.09, a.currentTime, 0.1); f.connect(g); g.connect(a.master);
+    const oscs = [45, 57, 64, 69].map((n, i) => { const o = a.createOscillator(); o.type = i === 2 ? 'sine' : 'sawtooth'; o.frequency.value = midi(n); const og = a.createGain(); og.gain.value = i === 2 ? 0.6 : 0.35; o.connect(og); og.connect(f); o.start(); return o; });
+    drone = { g, oscs };
+  }
+  $('drone').textContent = 'A drone: ' + (drone ? 'on' : 'off'); $('drone').classList.toggle('on', !!drone);
+}
+// test phrases, all in A minor around note A
+function phrase(name, kind, A) {
+  const a = ac(), t0 = a.currentTime + 0.05;
+  if (kind === 'note') playNote(name, A, t0, 1.6);
+  else if (kind === 'scale') [0, 2, 3, 5, 7, 8, 10, 12].forEach((d, i) => playNote(name, A + d, t0 + i * 0.28, 0.26));
+  else if (kind === 'riff') {
+    [[0, 0.3], [3, 0.3], [7, 0.3], [12, 0.6], [10, 0.3], [7, 0.3], [8, 0.3], [7, 0.9]].reduce((t, [d, l]) => { playNote(name, A + d, t, l * 0.95); return t + l; }, t0);
+    [A - 12, A - 5, A].forEach(n => sine(n, t0, 3.3, 0.08));
+  } else if (kind === 'vs') {                        // sample, reference, sample, then both together
+    playNote(name, A, t0, 0.8); sine(A, t0 + 0.9, 0.8, 0.3); playNote(name, A, t0 + 1.8, 0.8); playNote(name, A, t0 + 2.8, 1.6); sine(A, t0 + 2.8, 1.6, 0.18);
+  }
+}
+function render() {
+  const uses = {};
+  for (const [st, roles] of Object.entries(SAMPLED)) for (const [role, m] of Object.entries(roles)) if (m) (uses[m[0]] ||= []).push({ st, role, shift: m[1] });
+  const L = $('list'); L.innerHTML = '';
+  for (const name of Object.keys(man)) {
+    const u = uses[name] || [], main = u.find(x => x.role === 'bass') || u[0];
+    const A = main ? ROLE_A[main.role] + main.shift : 69;
+    const card = document.createElement('div'); card.className = 'card';
+    const v = +tune[name] || 0, semi = Math.round(v), cents = Math.round((v - semi) * 100);
+    card.innerHTML = `
+      <div class="head"><span class="name">${name}</span>
+        <span class="uses">${u.map(x => `${STAGE[x.st]} ${x.role}`).join(' · ') || 'not used'}</span></div>
+      <div class="row">
+        <select class="oct">${[21, 33, 45, 57, 69, 81, 93].map(n => `<option value="${n}" ${n === A ? 'selected' : ''}>A${Math.floor(n / 12) - 1}${n === A ? ' (game)' : ''}</option>`).join('')}</select>
+        <button data-k="note">Note</button><button data-k="scale">Scale</button><button data-k="riff">Riff</button><button data-k="vs">vs reference</button>
+        <span class="uses">adjust: <span class="total"></span></span>
+      </div>
+      <div class="sl"><label>Semitones</label><input type="range" class="semi" min="-12" max="12" step="1" value="${semi}"><output class="so"></output></div>
+      <div class="sl"><label>Cents</label><input type="range" class="cent" min="-50" max="50" step="1" value="${cents}"><output class="co"></output></div>`;
+    const upd = () => {
+      const s = +card.querySelector('.semi').value, c = +card.querySelector('.cent').value, val = Math.round((s + c / 100) * 100) / 100;
+      card.querySelector('.so').textContent = (s > 0 ? '+' : '') + s; card.querySelector('.co').textContent = (c > 0 ? '+' : '') + c;
+      card.querySelector('.total').textContent = (val > 0 ? '+' : '') + val.toFixed(2) + ' st';
+      if (val) tune[name] = val; else delete tune[name];
+      card.classList.toggle('changed', !!val); save(tune); out();
+    };
+    card.querySelectorAll('input').forEach(i => i.addEventListener('input', upd));
+    card.querySelectorAll('button[data-k]').forEach(b => b.addEventListener('click', () => phrase(name, b.dataset.k, +card.querySelector('.oct').value)));
+    upd(); L.appendChild(card);
+  }
+}
+function out() { $('out').value = 'InRun tuning: ' + JSON.stringify(tune); }
+$('drone').onclick = toggleDrone;
+$('mode').onclick = e => { const m = e.target.dataset.m; if (!m) return; mode = m; [...$('mode').children].forEach(b => b.classList.toggle('on', b.dataset.m === m)); msg(m === 'amiga' ? 'Amiga mode: crunchy 8-bit copies, as the Amiga stages play them.' : 'Gravis mode: the clean samples, as the Gravis stages play them.'); };
+$('copy').onclick = async () => { out(); try { await navigator.clipboard.writeText($('out').value); msg('Copied — paste it back to Claude.'); } catch (e) { $('out').select(); msg('Select the text below and copy it.'); } };
+$('reset').onclick = () => { if (!confirm('Reset every instrument to its original tuning?')) return; tune = {}; save(tune); render(); msg('All tuning reset.'); };
+(async () => {
+  try {
+    man = await (await fetch('assets/inst/manifest.json')).json();
+    const a = ac();
+    await Promise.all(Object.keys(man).map(async k => { bufs[k] = await a.decodeAudioData(await (await fetch('assets/inst/' + k + '.wav')).arrayBuffer()); }));
+    render(); msg('Ready. Tap a button to hear an instrument (the first tap unlocks audio).');
+  } catch (e) { $('list').textContent = 'Could not load the samples: ' + e.message; }
+})();
+</script>
+</body>
+</html>
