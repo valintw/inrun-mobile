@@ -1174,7 +1174,7 @@ const bust = { t: 0 };
 // The gang drives like slow traffic ahead of you, staggered across the lanes, drifting into your line as you approach.
 // Weave past at speed and they can't touch you. Slow down and the nearby ones switch to boxing you in:
 // one gets in front, the others pull alongside. They never attack from behind (where the chase camera can't show them).
-const GANG_CRUISE = 0.5, GANG_BOX_MAX = 0.7, BOX_SLOW = 0.4, BUST_SPEED = 0.35;
+const GANG_CRUISE = 0.5, GANG_BOX_MAX = 0.66, BOX_SLOW = 0.33, BUST_SPEED = 0.28, BREAK_FREE = 0.5, BUST_TIME = 2.4;
 function spawnGang() {
   removeGang();
   const pz = position + PLAYER_Z;
@@ -1210,24 +1210,34 @@ function gangDrive(car, dt) {
   const pz = position + PLAYER_Z, L = lenOf('pickup'), half = (L + lenOf('player')) / 2, dz = zDelta(car.z - pz);
   if (dz < -45 * SEG_LEN) {                     // left far behind: it turns up again further ahead, as fresh "traffic"
     car.z = wrap(pz + (95 + Math.random() * 60) * SEG_LEN, trackLength);
-    car.offset = car.target = LANES3[Math.floor(Math.random() * 3)]; car.speed = MAX_SPEED * GANG_CRUISE; car.mode = car.role = 'cruise';
+    car.offset = car.target = LANES3[Math.floor(Math.random() * 3)]; car.speed = MAX_SPEED * GANG_CRUISE; car.mode = car.role = 'cruise'; car.stun = car.hop = car.spin = 0;
     return;
   }
-  if (car.mode === 'box' && speed > MAX_SPEED * 0.62) car.mode = car.role = 'cruise';                // you broke free
-  else if (car.mode === 'cruise' && bust.slowT > 0.8 && Math.abs(dz) < 45 * SEG_LEN) car.mode = 'box';   // stay slow and they close in (a quick bump is forgiven)
+  if (car.stun > 0) {                           // rammed: tumbling away, out of the game for a few seconds
+    car.stun -= dt; car.mode = car.role = 'cruise';
+    car.speed = Math.max(MAX_SPEED * 0.3, car.speed - MAX_SPEED * 0.35 * dt);
+    car.offset = clamp(car.offset + car.vx * dt, -1.8, 1.8); car.vx *= Math.exp(-dt * 1.6);
+    car.hopV -= 22 * dt; car.hop = Math.max(0, car.hop + car.hopV * dt); if (car.hop === 0 && car.hopV < -2) car.hopV *= -0.35; else if (car.hop === 0) car.hopV = 0;
+    car.spin += car.spinV * dt; car.spinV *= Math.exp(-dt * 1.2);
+    if (car.stun <= 0) { car.spin = 0; car.hop = 0; car.target = clamp(car.offset, -0.95, 0.95); }
+    car.z = wrap(car.z + dt * car.speed, trackLength);
+    return;
+  }
+  if (car.mode === 'box' && speed > MAX_SPEED * BREAK_FREE) car.mode = car.role = 'cruise';          // you broke free
+  else if (car.mode === 'cruise' && bust.slowT > 1.6 && Math.abs(dz) < 40 * SEG_LEN) car.mode = 'box';   // stay slow for a while and they close in
   let want, toff = car.target, lat = 0.35;
   if (car.mode === 'cruise') {
     want = MAX_SPEED * GANG_CRUISE;
     if (dz > 0 && (speed < MAX_SPEED * BOX_SLOW || dz > 160 * SEG_LEN)) want = Math.min(want, speed * 0.5);   // slow down and they drop back to you
     if (dz > half && dz < 30 * SEG_LEN) toff = clamp(playerX, -0.8, 0.8);          // drift across to block your line (dodgeable)
   } else {
-    let tz = 0; toff = playerX; lat = 0.9;
+    let tz = 0; toff = playerX; lat = 0.55;
     if (car.role === 'block') tz = half + L * 0.5;
     else if (car.role === 'pinL') toff = playerX - 0.55;
     else if (car.role === 'pinR') toff = playerX + 0.55;
     else { tz = half + L * 2.5; toff = playerX + (playerX > 0 ? -0.6 : 0.6); }
-    want = speed + (tz - dz) * 2.2;
-    if (car.role === 'block' && dz > 0 && dz < half + L && Math.abs(car.offset - playerX) < 0.3) want = Math.min(want, speed * 0.85);   // brake-check
+    want = speed + (tz - dz) * 1.4;
+    if (car.role === 'block' && dz > 0 && dz < half + L && Math.abs(car.offset - playerX) < 0.3) want = Math.min(want, speed * 0.94);   // a gentle brake-check
     if (car.role.startsWith('pin') && Math.abs(dz) > half * 1.5) toff += car.role === 'pinL' ? -0.15 : 0.15;   // hold the next lane until alongside
   }
   car.speed = clamp(car.speed + clamp(want - car.speed, -MAX_SPEED * 1.2 * dt, MAX_SPEED * 0.45 * dt), 0, MAX_SPEED * GANG_BOX_MAX);
@@ -1239,7 +1249,7 @@ function gangDrive(car, dt) {
 function gangBoxed() {                          // a pickup square in front of you, and one beside you (or the road edge)
   const pz = position + PLAYER_Z, L = lenOf('pickup'), half = (L + lenOf('player')) / 2;
   let block = false, pin = 0;
-  for (const c of cars) if (c.gang) {
+  for (const c of cars) if (c.gang && !(c.stun > 0)) {
     const dz = zDelta(c.z - pz), lat = Math.abs(c.offset - playerX);
     if (dz > 0 && dz < half + L * 1.6 && lat < 0.5) block = true;
     if (Math.abs(dz) < half * 1.5 && lat > 0.15 && lat < 0.95) pin++;
@@ -2201,6 +2211,14 @@ function update(dt) {
       if (Math.abs(dz) >= half || !overlap(playerX, pw, car.offset, car.w, 0.9)) continue;
       const side = playerX >= car.offset ? 1 : -1, depth = half - Math.abs(dz);
       let rel = Math.abs(speed - car.speed) / MAX_SPEED;
+      if (car.gang && !(car.stun > 0) && speed > MAX_SPEED * 0.45) {     // ram a gang pickup at speed and it goes flying
+        const hit = speed / MAX_SPEED;
+        car.stun = 3.2; car.speed = speed * (1.05 + 0.35 * hit); car.hop = 0; car.hopV = 3 + 5 * hit;
+        car.vx = -side * (0.9 + 1.6 * hit); car.spin = 0; car.spinV = -side * (4 + 6 * hit);
+        car.z = wrap(pz + (dz > 0 ? half + 1 : -half - 1), trackLength);
+        speed *= 0.9; playerVX += side * 0.35; syncCarSeg(car); crash();
+        continue;
+      }
       if (dz > 0 && speed > car.speed && depth < half * 0.7) {          // we rear-ended it: it gets shunted, we lose speed
         car.speed = Math.min(car.speed0 * 1.4, car.speed + (speed - car.speed) * 0.4);
         speed = car.speed * 0.8;
@@ -2240,8 +2258,8 @@ function update(dt) {
         if (prog >= bust.arriveAt) { bust.arriveAt = null; spawnGang(); toast('THERE THEY ARE — WEAVE THROUGH!'); }
       }
       else if (bust.grace > 0) bust.grace -= dt;
-      else if (boxed || stopped) bust.t += dt * (stopped ? 1.5 : 1); else bust.t = Math.max(0, bust.t - dt * 0.6);
-      if (bust.t > 1.6) { startBusted(); return; }
+      else if (boxed || stopped) bust.t += dt * (stopped ? 1.5 : 1); else bust.t = Math.max(0, bust.t - dt * 1.2);
+      if (bust.t > BUST_TIME) { startBusted(); return; }
     }
     if (timeLeft <= 0) { timeLeft = 0; state = 'over'; setMsg('TIME UP', ''); msgTimer = 99; }
   } else if (speed <= 0) { endGame(); }
@@ -3589,7 +3607,7 @@ function build3D(T, A) {
         if (!CUT.active && (x - camera.position.x) ** 2 + (z - camera.position.z) ** 2 < 30) continue;   // never draw a vehicle around the camera
         const half = (ty === 'truck' ? 3.6 : 2.3) / SEG_M;              // slope measured over the car's own length
         const pitch = Math.atan2(at(d + half).y - at(d - half).y, 2 * half * SEG_M);
-        place(cm.bodyIM, cm.n, x, (at(d + half).y + at(d - half).y) / 2, z, -p.h, 1, pitch); cm.detIM.setMatrixAt(cm.n, mtx);
+        place(cm.bodyIM, cm.n, x, (at(d + half).y + at(d - half).y) / 2 + (car.hop || 0), z, -p.h + (car.spin || 0), 1, car.hop ? pitch + Math.sin(car.spin * 0.7) * 0.25 : pitch); cm.detIM.setMatrixAt(cm.n, mtx);
         cm.bodyIM.setColorAt(cm.n, carColor[car.ci]); cm.n++;
       }
     }

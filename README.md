@@ -52,7 +52,8 @@ drifting into your line as you close in — weave past at speed and they can't t
 switch to boxing you in: one gets in front and brake-checks, the others pull alongside. Get boxed in (a pickup in
 front, another beside you or the road edge) at low speed and you're **BUSTED**: a 3D cutscene plays out where you
 stopped — the gang climb out, haul you onto the tarmac, bash you with baseball caps and wheelspin off in your car
-(game over). Get back up to speed and you break free. Finish the lap for
+(game over). Get back up to speed and you break free. Ram a pickup at speed and it goes flying — spun round, bounced up
+the road and out of the chase for a few seconds. Finish the lap for
 +25,000 points and +20 s, and the eras head off the other way with busier traffic. Start straight in it with `?era=6`.
 
 ## Time bonus & traffic
