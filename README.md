@@ -4,7 +4,8 @@ An arcade sunset driving game in a single HTML file, built for phones. You steer
 
 ## A drive through gaming time
 The circuit has seven stages — Coastline, Desert Run, Alpine Pass, Downtown Rain, Beachfront, Sunset Blvd and Neon City.
-Every full lap moves the graphics and music forward an era:
+Every full lap moves the graphics and music one era along — up to HD, then back down to EGA, and round again
+(EGA → Amiga → VGA → SVGA → HD → SVGA → VGA → Amiga → EGA …):
 
 | Lap | Era | Look |
 |---|---|---|
@@ -14,7 +15,8 @@ Every full lap moves the graphics and music forward an era:
 | 4 | 1996 · SVGA | 480 lines, smooth scaling, shaded sprites and true colour |
 | 5 | Today · HD | **real-time 3D** (three.js / WebGL): a glTF hero car (metallic-flake clearcoat paint, real wheels and interior), modelled traffic with clearcoat paint and reflections, 3D palms, pines, cacti, rocks, billboards, street lamps and lit skyscrapers, sun lighting with soft shadows, fog, filmic tone mapping, bloom and a chase camera |
 
-From lap 5 onward the game stays in HD. The 3D engine downloads in the background after the page loads (from jsDelivr); if WebGL isn't available the HD era falls back to the 2D renderer. The title screen cycles through all five eras.
+Each full era cycle (8 laps, back to EGA) adds 20% more traffic, driving 20% faster. Checkpoint time bonuses start at
+45 s and ease off by just 2 s per lap, never dropping below 32 s. The 3D engine downloads in the background after the page loads (from jsDelivr); if WebGL isn't available the HD era falls back to the 2D renderer. The title screen cycles through all five eras.
 
 ## Sound through the eras
 The audio hardware evolves with the graphics (all synthesised live in the browser):

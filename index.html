@@ -1090,19 +1090,36 @@ function buildTrack() {
   }
 }
 
+// ---- difficulty: each full era cycle (up to HD and back to EGA) brings 20% more traffic, 20% faster ----
+const ERA_CYCLE = (N_ERAS - 1) * 2;                     // 8 laps: 0 1 2 3 4 3 2 1 | 0 ...
+const eraForLap = (l) => { const p = l % ERA_CYCLE; return p < N_ERAS ? p : ERA_CYCLE - p; };
+const MAX_CARS = 150, TRAFFIC_TOP = 0.8;                // keep the car count phone-friendly and traffic slower than you
+let trafficLevel = 0;
+const trafficScale = () => Math.pow(1.2, trafficLevel);
+function makeCar(R, zFn) {
+  const offset = [-2/3, 0, 2/3][Math.floor(R()*3)] + (R() - 0.5) * 0.15;
+  const z = zFn();
+  const ci = Math.floor(R() * SPR_LO.cars.length), spr = SPR_LO.cars[ci];
+  const sp = Math.min(TRAFFIC_TOP * MAX_SPEED, ((spr.type === 'truck' ? 0.22 : 0.28) * MAX_SPEED + R() * MAX_SPEED * (spr.type === 'truck' ? 0.15 : 0.3)) * trafficScale());
+  const car = { offset, target: offset, z, ci, speed: sp, speed0: sp, vx: 0, percent: 0, w: spr.worldW / ROAD_W, timer: 2 + R()*6, type: spr.type };
+  car.seg = findSegment(z); car.seg.cars.push(car); cars.push(car);
+}
+function raiseTraffic() {                               // called when a full era cycle completes
+  trafficLevel++;
+  const R = rng((Math.random() * 1e9) | 0);
+  for (const c of cars) { c.speed0 = Math.min(TRAFFIC_TOP * MAX_SPEED, c.speed0 * 1.2); c.speed = Math.min(c.speed, c.speed0); }
+  const want = Math.min(MAX_CARS, Math.round(N_CARS * trafficScale())), pz = position + PLAYER_Z;
+  while (cars.length < want) makeCar(R, () => {          // new cars appear well away from you
+    let z; do { z = Math.floor(R() * segments.length) * SEG_LEN; } while (Math.abs(zDelta(z - pz)) < 60 * SEG_LEN);
+    return z;
+  });
+}
 function resetCars() {
   for (const s of segments) s.cars.length = 0;
   cars = [];
   const R = rng((Math.random() * 1e9) | 0);
-  for (let n = 0; n < N_CARS; n++) {
-    const offset = [-2/3, 0, 2/3][Math.floor(R()*3)] + (R() - 0.5) * 0.15;
-    const z = Math.floor((0.04 + R() * 0.95) * segments.length) * SEG_LEN;
-    const ci = Math.floor(R() * SPR_LO.cars.length), spr = SPR_LO.cars[ci];
-    const sp = (spr.type === 'truck' ? 0.22 : 0.28) * MAX_SPEED + R() * MAX_SPEED * (spr.type === 'truck' ? 0.15 : 0.3);
-    const car = { offset, target: offset, z, ci, speed: sp, speed0: sp, vx: 0, percent: 0, w: spr.worldW / ROAD_W, timer: 2 + R()*6, type: spr.type };
-    car.seg = findSegment(z); car.seg.cars.push(car);
-    cars.push(car);
-  }
+  const count = Math.min(MAX_CARS, Math.round(N_CARS * trafficScale()));
+  for (let n = 0; n < count; n++) makeCar(R, () => Math.floor((0.04 + R() * 0.95) * segments.length) * SEG_LEN);
 }
 function findSegment(z) { return segments[Math.floor(z / SEG_LEN) % segments.length]; }
 
@@ -2020,13 +2037,14 @@ function update(dt) {
     themeFrom = themeTo; themeTo = playerSeg.theme; themeBlend = 0;
     if (!over) {
       stagesCleared++;
-      const bonus = Math.max(25, 48 - stagesCleared * 2);
-      timeLeft += bonus; score += 2500 * stagesCleared;
       if (wrapped) lap++;
+      const bonus = Math.max(32, 45 - lap * 2);                // eases off gently: 2 s less per lap, never below 32 s
+      timeLeft += bonus; score += 2500 * stagesCleared;
       setMsg(wrapped ? 'LAP ' + lap + ' COMPLETE!' : 'CHECKPOINT!', '+' + bonus + ' SEC  ·  ' + THEMES[curStage].name); msgTimer = 2.5;
       sfxCheckpoint();
-      // a new era of graphics for every full cycle of the stages
-      if (wrapped && setEra(Math.min(lap, N_ERAS - 1))) announceEra();
+      // each lap moves one era along: up to HD, then back down to EGA, and round again
+      if (wrapped && setEra(eraForLap(lap))) announceEra();
+      if (wrapped && lap % ERA_CYCLE === 0) { raiseTraffic(); toast('FULL ERA CYCLE! TRAFFIC +20% · SPEED +20%'); }
     }
   }
   if (themeBlend < 1) themeBlend = Math.min(1, themeBlend + dt / 2.5);
@@ -3455,7 +3473,8 @@ async function startGame() {
   lap = 0;
   const qe = parseInt(new URLSearchParams(location.search).get('era'), 10);
   if (qe > 1 && qe <= N_ERAS) lap = qe - 1;
-  setEra(Math.min(lap, N_ERAS - 1)); announceEra();
+  setEra(eraForLap(lap)); announceEra();
+  trafficLevel = Math.floor(lap / ERA_CYCLE);
   resetCars();
   resetConductor();
   showPanel(null); setHUD(true);
