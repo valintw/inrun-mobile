@@ -1023,13 +1023,29 @@ function addRoad(enter, hold, leave, curve, height, stage) {
   for (let i = 0; i < leave; i++) addSegment(easeInOut(curve, 0, i/leave), easeInOut(startY, endY, (enter+hold+i)/total), stage);
 }
 
+// A hairpin: a tight 180-degree bend (about 27 m radius in the 3D view) that needs a big lift or a dab of brake.
+const HAIRPIN_CURVE = 15, HAIRPIN_IN = 25, HAIRPIN_OUT = 25;
+const HAIRPIN_HOLD = Math.round(Math.PI / (HAIRPIN_CURVE * 0.25 / SEG_LEN) - HAIRPIN_IN / 3 - HAIRPIN_OUT / 2);
+let hairpins = [];                                       // { seg, dir } where each hairpin starts, for the warning
+function addHairpin(dir, height, stage) {
+  addRoad(20, 30, 0, 0, height * 0.15, stage);           // short straight run-up
+  hairpins.push({ seg: segments.length, dir, warned: -1 });
+  addRoad(HAIRPIN_IN, HAIRPIN_HOLD, HAIRPIN_OUT, dir * HAIRPIN_CURVE, height * 0.85, stage);
+  addRoad(20, 30, 20, 0, 0, stage);                      // and a breather after
+}
+
 function buildTrack() {
-  segments = [];
+  segments = []; hairpins = [];
   for (let s = 0; s < N_STAGES; s++) {
     const R = rng(4242 + s * 131);
     const start = segments.length;
     addRoad(40, 40, 40, 0, 0, s);
+    let hpDone = 0;
     while (segments.length - start < STAGE_LEN) {
+      // the Alpine Pass gets two hairpins: a left-hander on the climb, a right-hander on the way down
+      if (s === ALPINE && hpDone < 2 && (segments.length - start) / STAGE_LEN >= [0.3, 0.8][hpDone]) {
+        addHairpin(hpDone ? 1 : -1, hpDone ? -45 : 45, s); hpDone++; continue;
+      }
       const t = R();
       const L = (s === ALPINE ? [35, 50, 70] : [25, 40, 60])[Math.floor(R()*3)];
       const dir = R() < 0.5 ? -1 : 1;
@@ -2105,7 +2121,7 @@ function update(dt) {
   const thr = over ? -0.4 : input.throttle;
   playerX += dx * input.steer * (over ? 0 : 1.15) + playerVX * dt;     // steering + any knock from a collision
   playerVX *= Math.exp(-dt * 5);
-  playerX -= dx * pct * playerSeg.curve * CENTRIFUGAL;
+  playerX -= dx * pct * clamp(playerSeg.curve, -11, 11) * CENTRIFUGAL;   // hairpins look tighter than they pull
 
   if (thr > 0) speed += ACCEL * thr * (1 - 0.45 * pct) * dt;
   else if (thr < 0) speed += BRAKE * -thr * dt;
@@ -2181,6 +2197,10 @@ function update(dt) {
   } else if (speed <= 0) { endGame(); }
 
   updateBonus(dt, playerSeg, pw, over);
+  for (const hp of hairpins) {                           // flag each hairpin a couple of seconds before it
+    const ahead = hp.seg - playerSeg.index;
+    if (ahead > 0 && ahead < 160 && hp.warned !== lap && !over) { hp.warned = lap; toast(hp.dir < 0 ? '\u21B6 HAIRPIN LEFT \u2014 BRAKE!' : 'HAIRPIN RIGHT \u21B7 \u2014 BRAKE!'); }
+  }
 
   // checkpoints / stage changes
   if (playerSeg.stage !== curStage) {
@@ -2274,6 +2294,7 @@ function updateCars(dt) {
       if (free.length && Math.abs(car.target - car.offset) < 0.05) car.target = free[Math.floor(Math.random() * free.length)];
       else if (gap < 8 * SEG_LEN) want = Math.min(want, ahead.speed * (gap < 2 * SEG_LEN ? 0.9 : 1));
     }
+    if (Math.abs(findSegment(car.z + 30 * SEG_LEN).curve) > 8 || Math.abs(car.seg.curve) > 8) want = Math.min(want, MAX_SPEED * 0.3);   // everyone slows for a hairpin
     car.speed += clamp(want - car.speed, -MAX_SPEED * 0.7 * dt, MAX_SPEED * 0.12 * dt);
     car.timer -= dt;
     if (car.timer <= 0) { car.timer = 3 + Math.random() * 6; const l = LANES3[Math.floor(Math.random() * 3)]; if (laneFree(car, l)) car.target = l; }
@@ -3327,10 +3348,12 @@ function build3D(T, A) {
       rp[r*6] = px[r] - cx * halfRoad; rp[r*6+1] = py[r]; rp[r*6+2] = pz[r] - sz * halfRoad;
       rp[r*6+3] = px[r] + cx * halfRoad; rp[r*6+4] = py[r]; rp[r*6+5] = pz[r] + sz * halfRoad;
       ru[r*4] = 0; ru[r*4+1] = v; ru[r*4+2] = 1; ru[r*4+3] = v;
-      gp[r*6] = px[r] - cx * halfGround; gp[r*6+1] = py[r] - 0.04; gp[r*6+2] = pz[r] - sz * halfGround;
-      gp[r*6+3] = px[r] + cx * halfGround; gp[r*6+4] = py[r] - 0.04; gp[r*6+5] = pz[r] + sz * halfGround;
+      const cv = segments[pi[r]].curve, inner = Math.abs(cv) > 4 ? Math.min(halfGround, 0.8 * SEG_M / (Math.abs(cv) * CURVE_K)) : halfGround;
+      const gL = cv < -4 ? inner : halfGround, gR = cv > 4 ? inner : halfGround;   // the inside of a tight bend would fold over itself
+      gp[r*6] = px[r] - cx * gL; gp[r*6+1] = py[r] - 0.04; gp[r*6+2] = pz[r] - sz * gL;
+      gp[r*6+3] = px[r] + cx * gR; gp[r*6+4] = py[r] - 0.04; gp[r*6+5] = pz[r] + sz * gR;
       const gv = (base.index - B3 + r) * SEG_M / 6;
-      gu[r*4] = 0; gu[r*4+1] = gv; gu[r*4+2] = halfGround * 2 / 6; gu[r*4+3] = gv;
+      gu[r*4] = (halfGround - gL) / 6; gu[r*4+1] = gv; gu[r*4+2] = (halfGround + gR) / 6; gu[r*4+3] = gv;
       const sp3 = seaGeo.attributes.position.array, su = seaGeo.attributes.uv.array, sIn = 16, sOut = 700;
       sp3[r*6] = px[r] + cx * sIn; sp3[r*6+1] = py[r] - 0.02; sp3[r*6+2] = pz[r] + sz * sIn;
       sp3[r*6+3] = px[r] + cx * sOut; sp3[r*6+4] = py[r] - 0.02; sp3[r*6+5] = pz[r] + sz * sOut;
