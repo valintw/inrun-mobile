@@ -4,8 +4,8 @@ An arcade sunset driving game in a single HTML file, built for phones. You steer
 
 ## A drive through gaming time
 The circuit has seven stages — Coastline, Desert Run, Alpine Pass, Downtown Rain, Beachfront, Sunset Blvd and Neon City.
-Every full lap moves the graphics and music one era along — up to HD, then back down to EGA, and round again
-(EGA → Amiga → VGA → SVGA → HD → SVGA → VGA → Amiga → EGA …):
+Every full lap moves the graphics and music one era along — up to HD, a WANTED bonus lap, then back down to EGA
+(EGA → Amiga → VGA → SVGA → HD → **WANTED** → SVGA → VGA → Amiga → EGA …):
 
 | Lap | Era | Look |
 |---|---|---|
@@ -15,7 +15,7 @@ Every full lap moves the graphics and music one era along — up to HD, then bac
 | 4 | 1996 · SVGA | 480 lines, smooth scaling, shaded sprites and true colour |
 | 5 | Today · HD | **real-time 3D** (three.js / WebGL): a glTF hero car (metallic-flake clearcoat paint, real wheels and interior), modelled traffic with clearcoat paint and reflections, 3D palms, pines, cacti, rocks, billboards, street lamps and lit skyscrapers, sun lighting with soft shadows, fog, filmic tone mapping, bloom and a chase camera |
 
-Each full era cycle (8 laps, back to EGA) adds 20% more traffic, driving 20% faster. Checkpoint time bonuses start at
+Each full era cycle (9 laps, back to EGA) adds 20% more traffic, driving 20% faster. Checkpoint time bonuses start at
 45 s and ease off by just 2 s per lap, never dropping below 32 s. The 3D engine downloads in the background after the page loads (from jsDelivr); if WebGL isn't available the HD era falls back to the 2D renderer. The title screen cycles through all five eras.
 
 ## Sound through the eras
@@ -37,6 +37,13 @@ In the tracker/synth eras the score reacts to the game, in the spirit of LucasAr
   western with twang guitar and whistle (Desert Run), oom-pah polka with accordion, flugelhorn and tuba (Alpine Pass),
   industrial EBM with metallic clangs (Downtown Rain), calypso with steel pan and ukulele (Beachfront), synthwave (Sunset Blvd) and techno with acid bass (Neon City). Crossing a checkpoint plays a one-bar fill, then the
   new arrangement enters at the top of a phrase. Game over ends on a final chord.
+
+## WANTED bonus lap
+After the HD lap comes a bonus lap in the HD renderer with sirens and police lights: survive it. The clock is frozen and
+replaced by your lap progress, and a gang of black pickups works together to box you in — one gets in front and
+brake-checks, two pull alongside, one lurks in the next lane and swerves into you. Crawl along with a truck on you for
+too long and you're **BUSTED**: they haul you out, bash you with baseball caps and drive off in your car (game over).
+Finish the lap and you get +25,000 points and +20 s, and the eras head back down. Start straight in it with `?era=6`.
 
 ## Time bonus & traffic
 - When the clock drops below 10 seconds, a glowing **+20 s stopwatch** drops onto the road ahead at a random moment
