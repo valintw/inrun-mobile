@@ -1134,52 +1134,85 @@ function makeCar(R, zFn) {
 const GANG_CI = 10;
 // ---- WANTED bonus era: a gang of pickups works together to box you in ----
 const bust = { t: 0 };
+// The gang drives like slow traffic ahead of you, staggered across the lanes, drifting into your line as you approach.
+// Weave past at speed and they can't touch you. Slow down and the nearby ones switch to boxing you in:
+// one gets in front, the others pull alongside. They never attack from behind (where the chase camera can't show them).
+const GANG_CRUISE = 0.5, GANG_BOX_MAX = 0.7, BOX_SLOW = 0.4, BUST_SPEED = 0.35;
 function spawnGang() {
   removeGang();
-  const pz = position + PLAYER_Z, roles = [['block', -62], ['pinL', -70], ['pinR', -76], ['ram', -84]];   // out of sight behind you
-  roles.forEach(([role, segs], k) => {
-    const z = wrap(pz + segs * SEG_LEN, trackLength), offset = role === 'pinL' ? -0.66 : role === 'pinR' ? 0.66 : (k % 2 ? 0.66 : -0.66);
-    const car = { offset, target: offset, z, ci: GANG_CI, speed: speed, speed0: MAX_SPEED * 0.95, vx: 0, percent: 0, w: SPR_LO.cars[GANG_CI].worldW / ROAD_W, timer: 99, type: 'pickup', gang: true, role };
+  const pz = position + PLAYER_Z;
+  [[55, -2/3], [85, 2/3], [115, 0], [145, -2/3]].forEach(([segs, lane]) => {
+    const z = wrap(pz + segs * SEG_LEN, trackLength);
+    const car = { offset: lane, target: lane, z, ci: GANG_CI, speed: MAX_SPEED * GANG_CRUISE, speed0: MAX_SPEED * GANG_BOX_MAX, vx: 0, percent: 0,
+                  w: SPR_LO.cars[GANG_CI].worldW / ROAD_W, timer: 99, type: 'pickup', gang: true, mode: 'cruise', role: 'cruise' };
     car.seg = findSegment(z); car.seg.cars.push(car); cars.push(car);
   });
-  bust.t = 0; bust.grace = 5;                    // a few seconds to get going before they can bust you
+  bust.t = 0; bust.grace = 3;
 }
-function gangIncoming() {                       // WANTED lap starts: you get a head start before they show up
-  removeGang(); bust.spawnIn = 6;
-  toast('A GANG IS COMING FOR YOUR CAR \u2014 GET GOING!');
+function gangIncoming() {                       // WANTED lap starts: a moment to get going, then they're up ahead
+  removeGang(); bust.spawnIn = 3;
+  toast('A GANG IS OUT FOR YOUR CAR — KEEP YOUR SPEED UP!');
 }
 function removeGang() {
   for (const c of cars.filter(c => c.gang)) { const i = c.seg.cars.indexOf(c); if (i >= 0) c.seg.cars.splice(i, 1); }
   cars = cars.filter(c => !c.gang); bust.t = 0; bust.spawnIn = 0;
 }
+function assignBoxRoles() {                     // the boxers decide who blocks and who pins, every frame
+  const pz = position + PLAYER_Z, box = cars.filter(c => c.gang && c.mode === 'box').map(c => ({ c, dz: zDelta(c.z - pz) })).sort((a, b) => b.dz - a.dz);
+  let leftUsed = playerX - 0.55 < -0.92, rightUsed = playerX + 0.55 > 0.92;
+  box.forEach(({ c }, k) => {
+    if (k === 0) c.role = 'block';
+    else if (!leftUsed && (c.offset <= playerX || rightUsed)) { c.role = 'pinL'; leftUsed = true; }
+    else if (!rightUsed) { c.role = 'pinR'; rightUsed = true; }
+    else c.role = 'escort';                     // spare: hangs a little way ahead in another lane
+  });
+}
 function gangDrive(car, dt) {
   const pz = position + PLAYER_Z, L = lenOf('pickup'), half = (L + lenOf('player')) / 2, dz = zDelta(car.z - pz);
-  let role = car.role, toff = playerX, tz = 0;
-  if (role === 'pinL' && playerX - 0.55 < -0.92) role = 'ram';        // no room to pin on that side: come from behind
-  if (role === 'pinR' && playerX + 0.55 > 0.92) role = 'ram';
-  if (role === 'block') tz = half + L * 0.6;                          // sit just in front of you...
-  else if (role === 'pinL') toff = playerX - 0.55;                    // ...one on each side...
-  else if (role === 'pinR') toff = playerX + 0.55;
-  else {                                                              // ...and one lurking in the next lane that swerves into you
-    if (!car.side || Math.abs(playerX + car.side * 0.6) > 0.95) car.side = playerX > 0 ? -1 : 1;
-    tz = -half * 0.55; toff = playerX + car.side * 0.6;
-    car.swerveT = (car.swerveT ?? 3) - dt;
-    if (car.swerveT < 0) { toff = playerX; if (car.swerveT < -0.8) car.swerveT = 2.5 + Math.random() * 2; }
+  if (dz < -45 * SEG_LEN) {                     // left far behind: it turns up again further ahead, as fresh "traffic"
+    car.z = wrap(pz + (95 + Math.random() * 60) * SEG_LEN, trackLength);
+    car.offset = car.target = LANES3[Math.floor(Math.random() * 3)]; car.speed = MAX_SPEED * GANG_CRUISE; car.mode = car.role = 'cruise';
+    return;
   }
-  const vmax = dz < -35 * SEG_LEN ? MAX_SPEED * 1.1 : MAX_SPEED * 0.95;   // they catch up if left behind, but flat out you're quicker
-  let want = speed + (tz - dz) * 2.2;
-  if (role === 'block' && dz > 0 && dz < half + L && Math.abs(car.offset - playerX) < 0.3) want = Math.min(want, speed * 0.8);   // brake-check
-  car.speed = clamp(car.speed + clamp(want - car.speed, -MAX_SPEED * 1.4 * dt, MAX_SPEED * 0.55 * dt), 0, vmax);
-  // pinners hold the next lane until they're alongside, then squeeze in
-  const alongside = Math.abs(dz) < half * 1.5;
-  car.target = clamp(role.startsWith('pin') && !alongside ? toff + (role === 'pinL' ? -0.15 : 0.15) : toff, -0.95, 0.95);
-  car.offset = clamp(car.offset + clamp(car.target - car.offset, -0.9 * dt, 0.9 * dt) + car.vx * dt, -0.95, 0.95);
+  if (car.mode === 'box' && speed > MAX_SPEED * 0.62) car.mode = car.role = 'cruise';                // you broke free
+  else if (car.mode === 'cruise' && bust.slowT > 0.8 && Math.abs(dz) < 45 * SEG_LEN) car.mode = 'box';   // stay slow and they close in (a quick bump is forgiven)
+  let want, toff = car.target, lat = 0.35;
+  if (car.mode === 'cruise') {
+    want = MAX_SPEED * GANG_CRUISE;
+    if (dz > 0 && (speed < MAX_SPEED * BOX_SLOW || dz > 160 * SEG_LEN)) want = Math.min(want, speed * 0.5);   // slow down and they drop back to you
+    if (dz > half && dz < 30 * SEG_LEN) toff = clamp(playerX, -0.8, 0.8);          // drift across to block your line (dodgeable)
+  } else {
+    let tz = 0; toff = playerX; lat = 0.9;
+    if (car.role === 'block') tz = half + L * 0.5;
+    else if (car.role === 'pinL') toff = playerX - 0.55;
+    else if (car.role === 'pinR') toff = playerX + 0.55;
+    else { tz = half + L * 2.5; toff = playerX + (playerX > 0 ? -0.6 : 0.6); }
+    want = speed + (tz - dz) * 2.2;
+    if (car.role === 'block' && dz > 0 && dz < half + L && Math.abs(car.offset - playerX) < 0.3) want = Math.min(want, speed * 0.85);   // brake-check
+    if (car.role.startsWith('pin') && Math.abs(dz) > half * 1.5) toff += car.role === 'pinL' ? -0.15 : 0.15;   // hold the next lane until alongside
+  }
+  car.speed = clamp(car.speed + clamp(want - car.speed, -MAX_SPEED * 1.2 * dt, MAX_SPEED * 0.45 * dt), 0, MAX_SPEED * GANG_BOX_MAX);
+  car.target = clamp(toff, -0.95, 0.95);
+  car.offset = clamp(car.offset + clamp(car.target - car.offset, -lat * dt, lat * dt) + car.vx * dt, -0.95, 0.95);
   car.vx *= Math.exp(-dt * 4);
   car.z = wrap(car.z + dt * car.speed, trackLength);
 }
-function gangNearness() {                    // 0..1, how close the nearest gang truck is
+function gangBoxed() {                          // a pickup square in front of you, and one beside you (or the road edge)
+  const pz = position + PLAYER_Z, L = lenOf('pickup'), half = (L + lenOf('player')) / 2;
+  let block = false, pin = 0;
+  for (const c of cars) if (c.gang) {
+    const dz = zDelta(c.z - pz), lat = Math.abs(c.offset - playerX);
+    if (dz > 0 && dz < half + L * 1.6 && lat < 0.5) block = true;
+    if (Math.abs(dz) < half * 1.5 && lat > 0.15 && lat < 0.95) pin++;
+  }
+  return block && (pin > 0 || Math.abs(playerX) > 0.7);
+}
+function gangNearness() {                    // 0..1: how hard the gang is pressing you (boxers count most)
   let best = 0; const pz = position + PLAYER_Z;
-  for (const c of cars) if (c.gang) best = Math.max(best, 1 - Math.min(1, Math.abs(zDelta(c.z - pz)) / (60 * SEG_LEN)));
+  for (const c of cars) if (c.gang) {
+    const d = Math.abs(zDelta(c.z - pz)) / SEG_LEN;
+    best = Math.max(best, c.mode === 'box' ? 1 - Math.min(1, d / 40) : 0.5 * (1 - Math.min(1, d / 30)));
+  }
   return best;
 }
 function raiseTraffic() {                               // called when a full era cycle completes
@@ -2128,11 +2161,13 @@ function update(dt) {
     score += dt * speed / 100 * (offroad ? 0.25 : 1);
     if (!ERAS[era].bonus) timeLeft -= dt;
     else {                                                            // WANTED: crawl with a gang truck on you and you're busted
-      const near = cars.some(c => c.gang && Math.abs(zDelta(c.z - (position + PLAYER_Z))) < lenOf('pickup') * 2.5);
-      if (bust.spawnIn > 0) { bust.spawnIn -= dt; if (bust.spawnIn <= 0) { spawnGang(); toast('HERE THEY COME!'); } }
+      const near = cars.some(c => c.gang && Math.abs(zDelta(c.z - (position + PLAYER_Z))) < lenOf('pickup') * 2);
+      const boxed = gangBoxed() && speed < MAX_SPEED * BUST_SPEED, stopped = near && speed < MAX_SPEED * 0.05;
+      bust.slowT = speed < MAX_SPEED * BOX_SLOW ? (bust.slowT || 0) + dt : 0;
+      if (bust.spawnIn > 0) { bust.spawnIn -= dt; if (bust.spawnIn <= 0) { spawnGang(); toast('THERE THEY ARE — WEAVE THROUGH!'); } }
       else if (bust.grace > 0) bust.grace -= dt;
-      else if (near && speed < MAX_SPEED * 0.12) bust.t += dt; else bust.t = Math.max(0, bust.t - dt * 1.5);
-      if (bust.t > 1.4) { startBusted(); return; }
+      else if (boxed || stopped) bust.t += dt * (stopped ? 1.5 : 1); else bust.t = Math.max(0, bust.t - dt * 0.6);
+      if (bust.t > 1.6) { startBusted(); return; }
     }
     if (timeLeft <= 0) { timeLeft = 0; state = 'over'; setMsg('TIME UP', ''); msgTimer = 99; }
   } else if (speed <= 0) { endGame(); }
@@ -2210,6 +2245,7 @@ function laneFree(car, lane) {
 }
 function updateCars(dt) {
   const LOOK = 30 * SEG_LEN, pz = position + PLAYER_Z, Lp = lenOf('player');
+  assignBoxRoles();
   for (const car of cars) {
     if (car.gang) { gangDrive(car, dt); continue; }
     const L = lenOf(car.type);
@@ -3511,7 +3547,7 @@ function updateHUD() {
   setText($('timeLbl'), 'tl', wanted ? 'SURVIVE' : 'TIME');
   setText(hud.time, 't', wanted ? Math.floor(position / trackLength * 100) + '%' : String(Math.ceil(timeLeft)));
   const bx = $('boxed'); bx.style.display = wanted && bust.t > 0.05 && state === 'race' ? 'block' : 'none';
-  if (bust.t > 0.05) bx.querySelector('i').style.width = Math.min(100, bust.t / 1.4 * 100) + '%';
+  if (bust.t > 0.05) bx.querySelector('i').style.width = Math.min(100, bust.t / 1.6 * 100) + '%';
   const fx = $('sirenFx'), near = wanted && state === 'race' ? gangNearness() : 0;
   fx.style.opacity = (near * (0.75 + 0.25 * Math.sin(performance.now() / 180))).toFixed(2);   // red danger glow, pulsing
   hud.time.classList.toggle('low', timeLeft < 10 && state === 'race');
