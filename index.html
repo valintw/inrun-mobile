@@ -1649,14 +1649,14 @@ function crunch(buf, rate, maxSecs) {
   for (let i = 0; i < len; i++) d[i] = Math.round(src[Math.min(src.length - 1, Math.floor(i * step))] * 127) / 127;
   return b;
 }
-// shared engine model: rpm through the gearbox -> firing frequency of a 4-cylinder four-stroke
-// the modelled engine loops' natural firing rates (assets/sfx/engine_lo.wav / engine_hi.wav)
-const ENG_LO_HZ = 45, ENG_HI_HZ = 126;
+// shared engine model: rpm through the gearbox -> firing frequency of a cross-plane V8 (4 firings per revolution)
+// the modelled V8 loops' natural firing rates (assets/sfx/engine_lo.wav ~1300 rpm burble / engine_hi.wav ~4600 rpm rasp)
+const ENG_LO_HZ = 86.683, ENG_HI_HZ = 306.783, ENG_SWAP_UP = 205, ENG_SWAP_DOWN = 165;   // single-channel eras swap loops here
 const engRate = (fire, base, lo = 0.4, hi = 6) => clamp(fire / base, lo, hi);
 function engineFire(p, gears, thr) {
   const g = Math.min(gears - 1, Math.floor(p * gears)), local = p * gears - g;
   const rpm = 900 + local * (gears > 2 ? 4800 : 5200) + g * 350 + (thr > 0 ? 120 : 0);
-  return rpm / 30;
+  return rpm / 15;
 }
 function initAudio() {
   const AC = window.AudioContext || window.webkitAudioContext;
@@ -1736,8 +1736,9 @@ function rigAmiga() {
   };
   const sm = audio.smp;
   if (sm) Object.assign(S, { kick: crunch(sm.kick, 12000), snare: crunch(sm.snare, 12000), hat: crunch(sm.hat, 12000), ohat: crunch(sm.ohat, 12000, 0.3),
-                              engine: crunch(sm.engine_lo, R), crash: crunch(sm.crash, R, 1.2) });
-  const ENG_BASE = sm ? ENG_LO_HZ : 64;
+                              engine: crunch(sm.engine_lo, R), engineHi: crunch(sm.engine_hi, R), crash: crunch(sm.crash, R, 1.2) });
+  const ENG_BASE = sm ? ENG_LO_HZ : 128;
+  let engHi = false;
   const paulaCache = {}, paulaBuf = (I) => paulaCache[I.name] || (paulaCache[I.name] = crunch(I.buf, 16726, I.loop ? I.loop[1] + 0.02 : 1.0));
   const cycCache = {}, cyc = (tb) => cycCache[tb] || (cycCache[tb] = (() => {        // 64-sample 8-bit instrument waves
     const f = harmonics(TIMBRES[tb].h); let mx = 0; for (let i = 0; i < 64; i++) mx = Math.max(mx, Math.abs(f(i / 64)));
@@ -1778,8 +1779,9 @@ function rigAmiga() {
       const c = ch[3], t = a.currentTime;
       if (t < c.busyUntil) return;
       if (!live) { if (engOn) { c.stop(t); engOn = false; } return; }
-      if (!engOn) { c.play(S.engine, 1, 0.3, t, 0, true); engOn = true; }
-      c.src.playbackRate.setTargetAtTime(engRate(engineFire(p, 2, thr), ENG_BASE), t, 0.05);
+      const fire = engineFire(p, 2, thr), hi = !!S.engineHi && (engHi ? fire > ENG_SWAP_DOWN : fire > ENG_SWAP_UP);
+      if (!engOn || hi !== engHi) { engHi = hi; c.play(hi ? S.engineHi : S.engine, engRate(fire, hi ? ENG_HI_HZ : ENG_BASE), 0.3, t, 0, true); engOn = true; }
+      c.src.playbackRate.setTargetAtTime(engRate(fire, hi ? ENG_HI_HZ : ENG_BASE), t, 0.05);
       c.env.gain.setTargetAtTime(0.22 + 0.12 * Math.max(0, thr), t, 0.05);
     },
     crash() { const t = a.currentTime; ch[3].play(S.crash, 1, 0.7, t, 0.7); ch[3].busyUntil = t + 0.7; engOn = false; },  // the crash steals the engine's channel
@@ -1827,8 +1829,9 @@ function rigAdlib() {
   const S = { engine: mkBuf(SB, 0.3, t => (((t * 50) % 1) * 2 - 1) * 0.5 + Math.sin(2 * Math.PI * 100 * t) * 0.25 + rnd() * 0.1, 8),
               crash: mkBuf(SB, 0.9, t => (rnd() * 0.9 + Math.sin(2 * Math.PI * 60 * t) * 0.4) * Math.exp(-t * 4), 8) };
   const sm = audio.smp;
-  if (sm) { S.engine = crunch(sm.engine_lo, SB); S.crash = crunch(sm.crash, SB, 1.4); }
-  const ENG_BASE = sm ? ENG_LO_HZ : 50;
+  if (sm) { S.engine = crunch(sm.engine_lo, SB); S.engineHi = crunch(sm.engine_hi, SB); S.crash = crunch(sm.crash, SB, 1.4); }
+  const ENG_BASE = sm ? ENG_LO_HZ : 100;
+  let engHi = false;
   const eng = makeChan(sbBus, 0), fx = makeChan(sbBus, 0);
   let engOn = false;
   return {
@@ -1847,8 +1850,9 @@ function rigAdlib() {
     engine(p, live, thr) {
       const t = a.currentTime;
       if (!live) { if (engOn) { eng.stop(t); engOn = false; } return; }
-      if (!engOn) { eng.play(S.engine, 1, 0.25, t, 0, true); engOn = true; }
-      eng.src.playbackRate.setTargetAtTime(engRate(engineFire(p, 4, thr), ENG_BASE), t, 0.06);
+      const fire = engineFire(p, 4, thr), hi = !!S.engineHi && (engHi ? fire > ENG_SWAP_DOWN : fire > ENG_SWAP_UP);
+      if (!engOn || hi !== engHi) { engHi = hi; eng.play(hi ? S.engineHi : S.engine, engRate(fire, hi ? ENG_HI_HZ : ENG_BASE), 0.25, t, 0, true); engOn = true; }
+      eng.src.playbackRate.setTargetAtTime(engRate(fire, hi ? ENG_HI_HZ : ENG_BASE), t, 0.06);
       eng.env.gain.setTargetAtTime(0.18 + 0.12 * Math.max(0, thr), t, 0.05);
     },
     crash() { fx.play(S.crash, 1, 0.8, a.currentTime, 0.9); },
@@ -1882,7 +1886,7 @@ function rigGUS(hd) {
   };
   const sm = audio.smp;
   if (sm) Object.assign(S, { kick: sm.kick, snare: sm.snare, hat: sm.hat, ohat: sm.ohat, cymbal: sm.cymbal, crash: sm.crash, engLo: sm.engine_lo, engHi: sm.engine_hi });
-  const LO_BASE = sm ? ENG_LO_HZ : 45, HI_BASE = sm ? ENG_HI_HZ : 90;
+  const LO_BASE = sm ? ENG_LO_HZ : 90, HI_BASE = sm ? ENG_HI_HZ : 180;
   const rate = f => f / base;
   const voice = (buf, r, vol, t, dur, pan, loop, att = 0.004) => {        // free voices = overlapping sounds
     const s = a.createBufferSource(), g = a.createGain(), p = a.createStereoPanner ? a.createStereoPanner() : null;
@@ -1946,7 +1950,7 @@ function rigGUS(hd) {
       const t = a.currentTime;
       if (!live) { if (eng) { eng.lo.g.gain.setTargetAtTime(0, t, 0.1); eng.hi.g.gain.setTargetAtTime(0, t, 0.1); } return; }
       if (!eng) eng = { lo: voice(S.engLo, 1, 0, t, 0, 0, true), hi: voice(S.engHi, 1, 0, t, 0, 0, true) };
-      const fire = engineFire(p, 5, thr), x = clamp((fire - 55) / 90, 0, 1), load = 0.6 + 0.4 * Math.max(0, thr);   // 5-speed box
+      const fire = engineFire(p, 5, thr), x = clamp((fire - 110) / 170, 0, 1), load = 0.6 + 0.4 * Math.max(0, thr);   // 5-speed box
       eng.lo.s.playbackRate.setTargetAtTime(engRate(fire, LO_BASE), t, 0.05); eng.hi.s.playbackRate.setTargetAtTime(engRate(fire, HI_BASE, 0.5, 1.9), t, 0.05);
       eng.lo.g.gain.setTargetAtTime(0.3 * (1 - x) * load, t, 0.05); eng.hi.g.gain.setTargetAtTime(0.26 * x * load, t, 0.05);
       const sk = Math.abs(steer) > 0.75 && p > 0.6 ? 0.12 * (Math.abs(steer) - 0.75) * 4 : 0;          // tyre squeal
