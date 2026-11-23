@@ -30,7 +30,7 @@ The audio hardware evolves with the graphics (all synthesised live in the browse
 | 1987 · EGA | **PC speaker** — one square-wave beeper: engine buzz, crash rattle and beeps, no music |
 | 1989 · Amiga | **4-channel Paula** — 3-channel tracker tune played on real sampled instruments (strings, brass, sax, harmonica, pizzicato bass, orchestra hits…) crunched to 8-bit, plus recorded drums (hard-panned L/R); 1 channel for the engine, which crashes steal |
 | 1992 · VGA | **AdLib FM** — 2-operator FM bass, brass lead, pads and rhythm-mode drums; **Sound Blaster** 8-bit digitised engine and crashes |
-| 1996 · SVGA | **Gravis Ultrasound-style mod** — many 16-bit stereo channels of sampled instruments (each stage has its own "sample disk") with recorded drums, harmonies, echo and reverb; overlapping sampled SFX, 5-speed engine crossfading two samples, tyre squeal |
+| 1996 · SVGA | **Gravis Ultrasound-style mod** — many 16-bit stereo channels of sampled instruments (each stage has its own "sample disk") with recorded drums, harmonies, echo and reverb; overlapping sampled SFX, 5-speed V8 crossfading two samples (low-rev burble, high-rev rasp) with exhaust gurgle and pops on overrun, tyre squeal |
 | Today · HD | **Streamed MP3 playlist**, shuffled — "Loading Bar Blues", "Chip on Your Shoulder", "Custom Chip Blues", "Rendered Obsolete", "Chip Tune Funeral" (two takes), "Rendered Obsolete (Extended)" (`assets/music/playlist.json`, see `assets/music/README.md`); the next track is loaded when the current one is half played; falls back to a fuller synthesised score |
 
 ### Adaptive music (iMUSE-style)
