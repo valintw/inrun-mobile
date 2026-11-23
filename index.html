@@ -1707,10 +1707,11 @@ function rigSpeaker() {
     seq.forEach(([f, d], i) => { const t = t0 + seq.slice(0, i).reduce((s, x) => s + x[1], 0); o.frequency.setValueAtTime(f, t); });
     busy = t0 + seq.reduce((s, x) => s + x[1], 0); };
   return {
+    gears: 2,
     music() {},
     engine(p, live, thr) {
       const t = a.currentTime; if (t < busy) return;
-      g.gain.setValueAtTime(live ? 0.06 : 0, t);
+      g.gain.setValueAtTime(live ? 0.06 * engDuck() : 0, t);
       const gear = p < 0.5 ? 0 : 1, local = gear ? (p - 0.5) / 0.5 : p / 0.5;
       o.frequency.setValueAtTime(28 + local * 120 + gear * 22 + (thr > 0 ? 6 : 0), t);
     },
@@ -1747,6 +1748,7 @@ function rigAmiga() {
   let engOn = false;
   const rate = (f) => f / base;
   return {
+    gears: 2,
     music(ev, t) {                                         // 3 music channels: bass / melody / drums
       const v = ev.vel, cr = (n) => midi(n) / (R / 64);
       // play a role on a channel: the style's sampled instrument (8-bit, ~16.7 kHz, as in Paula memory) or the synth wave
@@ -1782,7 +1784,7 @@ function rigAmiga() {
       const fire = engineFire(p, 2, thr), hi = !!S.engineHi && (engHi ? fire > ENG_SWAP_DOWN : fire > ENG_SWAP_UP);
       if (!engOn || hi !== engHi) { engHi = hi; c.play(hi ? S.engineHi : S.engine, engRate(fire, hi ? ENG_HI_HZ : ENG_BASE), 0.3, t, 0, true); engOn = true; }
       c.src.playbackRate.setTargetAtTime(engRate(fire, hi ? ENG_HI_HZ : ENG_BASE), t, 0.05);
-      c.env.gain.setTargetAtTime(0.22 + 0.12 * Math.max(0, thr), t, 0.05);
+      c.env.gain.setTargetAtTime((0.22 + 0.12 * Math.max(0, thr)) * engDuck(), t, 0.02);
     },
     crash() { const t = a.currentTime; ch[3].play(S.crash, 1, 0.7, t, 0.7); ch[3].busyUntil = t + 0.7; engOn = false; },  // the crash steals the engine's channel
     checkpoint() { const t = a.currentTime; [69, 73, 76, 81].forEach((n, i) => ch[3].play(S.lead, rate(midi(n + 12)), 0.35, t + i * 0.08, 0.08, true)); ch[3].busyUntil = t + 0.34; engOn = false; },
@@ -1835,6 +1837,7 @@ function rigAdlib() {
   const eng = makeChan(sbBus, 0), fx = makeChan(sbBus, 0);
   let engOn = false;
   return {
+    gears: 4,
     music(ev, t) {                                         // up to 9 FM voices + rhythm mode
       const v = ev.vel, P = (tb, vol) => { const f = TIMBRES[tb].fm; return { ratio: f[0], index: f[1], idxEnd: f[2], att: f[3], dec: f[4], sus: f[5], rel: f[6], vol: f[7] * vol, vib: TIMBRES[tb].vib }; };
       if (ev.bass) fm(t, midi(ev.bass.n), ev.bass.len * 0.9, P(ev.bass.tb, v));
@@ -1853,7 +1856,7 @@ function rigAdlib() {
       const fire = engineFire(p, 4, thr), hi = !!S.engineHi && (engHi ? fire > ENG_SWAP_DOWN : fire > ENG_SWAP_UP);
       if (!engOn || hi !== engHi) { engHi = hi; eng.play(hi ? S.engineHi : S.engine, engRate(fire, hi ? ENG_HI_HZ : ENG_BASE), 0.25, t, 0, true); engOn = true; }
       eng.src.playbackRate.setTargetAtTime(engRate(fire, hi ? ENG_HI_HZ : ENG_BASE), t, 0.06);
-      eng.env.gain.setTargetAtTime(0.18 + 0.12 * Math.max(0, thr), t, 0.05);
+      eng.env.gain.setTargetAtTime((0.18 + 0.12 * Math.max(0, thr)) * engDuck(), t, 0.02);
     },
     crash() { fx.play(S.crash, 1, 0.8, a.currentTime, 0.9); },
     checkpoint() { const t = a.currentTime; [69, 73, 76, 81].forEach((n, i) => fm(t + i * 0.08, midi(n + 12), 0.12, INS.brass)); },
@@ -1917,6 +1920,7 @@ function rigGUS(hd) {
   };
   let eng = null, sq = null;
   return {
+    gears: 5,
     music(ev, t) {                                         // many 16-bit voices, panned across the stereo field
       const v = ev.vel;
       // a role's note: the style's sampled instrument if loaded, else the synth timbre
@@ -1952,7 +1956,7 @@ function rigGUS(hd) {
       if (!eng) eng = { lo: voice(S.engLo, 1, 0, t, 0, 0, true), hi: voice(S.engHi, 1, 0, t, 0, 0, true) };
       const fire = engineFire(p, 5, thr), x = clamp((fire - 110) / 170, 0, 1), load = 0.6 + 0.4 * Math.max(0, thr);   // 5-speed box
       eng.lo.s.playbackRate.setTargetAtTime(engRate(fire, LO_BASE), t, 0.05); eng.hi.s.playbackRate.setTargetAtTime(engRate(fire, HI_BASE, 0.5, 1.9), t, 0.05);
-      eng.lo.g.gain.setTargetAtTime(0.3 * (1 - x) * load, t, 0.05); eng.hi.g.gain.setTargetAtTime(0.26 * x * load, t, 0.05);
+      const dk = engDuck(); eng.lo.g.gain.setTargetAtTime(0.3 * (1 - x) * load * dk, t, 0.02); eng.hi.g.gain.setTargetAtTime(0.26 * x * load * dk, t, 0.02);
       const sk = Math.abs(steer) > 0.75 && p > 0.6 ? 0.12 * (Math.abs(steer) - 0.75) * 4 : 0;          // tyre squeal
       if (sk && !sq) sq = voice(S.squeal, 1, 0, t, 0, 0, true);
       if (sq) { sq.g.gain.setTargetAtTime(sk, t, 0.08); if (!sk) { const old = sq; setTimeout(() => { try { old.s.stop(); } catch (e) {} }, 400); sq = null; } }
@@ -2179,6 +2183,7 @@ function updateEngine() {
   if (audio.rainG) audio.rainG.gain.setTargetAtTime(era >= 2 && live && settings.sound ? rainAmt * 0.11 : 0, audio.ctx.currentTime, 0.3);
   audio.rig.engine(speed / MAX_SPEED, live && settings.sound, Math.max(0, input.throttle), input.steer);
   overrunTick(state === 'race' && settings.sound);
+  shiftTick(state === 'race' && settings.sound);
   turboTick(state === 'race' && settings.sound, speed / MAX_SPEED, Math.max(0, input.throttle));
 }
 // ---- turbo: boost builds with throttle and revs (with lag), whistling as it spools; lift off on boost and the
@@ -2233,6 +2238,28 @@ function blowOff(t, b) {                                                   // "p
     pg.gain.setValueAtTime(0.0001, tt); pg.gain.exponentialRampToValueAtTime(pv, tt + 0.004); pg.gain.exponentialRampToValueAtTime(0.001, tt + pd);
     ps.connect(pf); pf.connect(pg); pg.connect(audio.master); ps.start(tt, Math.random()); ps.stop(tt + pd + 0.02);
   }
+}
+// ---- gearchanges: an ignition-cut dip in the engine note and a clunk from the box ----
+const shift = { gear: -1, at: 0, until: 0, up: true };
+const engDuck = () => { const a = audio.ctx; if (!a || a.currentTime >= shift.until) return 1;
+  const k = (a.currentTime - shift.at) / (shift.until - shift.at); return shift.up ? 0.3 + 0.7 * k * k : 0.65 + 0.35 * k; };
+function shiftTick(live) {
+  const a = audio.ctx, rig = audio.rig; if (!a || !rig) return;
+  const n = rig.gears || 5, g = Math.min(n - 1, Math.floor(speed / MAX_SPEED * n));
+  if (!live) { shift.gear = g; return; }
+  const now = a.currentTime;
+  const wall = performance.now() / 1000;                                       // game clock (the audio clock can step coarsely)
+  if (shift.gear >= 0 && g !== shift.gear && wall - (shift.wall || 0) > (g > shift.gear ? 0.4 : 0.1)) {   // hysteresis: no machine-gun shifting
+    shift.up = g > shift.gear; shift.at = now; shift.wall = wall; shift.until = now + (shift.up ? 0.16 : 0.12); shift.gear = g;
+    if (audio.era !== 0) gearClunk(now, shift.up);
+  }
+  if (shift.gear < 0) shift.gear = g;
+}
+function gearClunk(t, up) {
+  const v = (up ? 0.5 : 0.32) * (audio.era <= 2 ? 0.8 : 1);
+  noiseHit(t + 0.02, 0.05, v, 'lowpass', 320 + Math.random() * 120);          // the selector thunking home
+  noiseHit(t + 0.025, 0.014, v * 0.45, 'bandpass', 2200 + Math.random() * 900);   // with a metallic click
+  if (up) noiseHit(t + 0.11, 0.03, v * 0.35, 'lowpass', 220);                  // and the drive taking up again
 }
 // ---- overrun: lift off from speed and the V8 gurgles and pops through the exhaust, thinning out as revs fall ----
 const ovr = { until: 0, next: 0, start: 0, lastThr: 0, p: 0 };
