@@ -2179,6 +2179,51 @@ function updateEngine() {
   if (audio.rainG) audio.rainG.gain.setTargetAtTime(era >= 2 && live && settings.sound ? rainAmt * 0.11 : 0, audio.ctx.currentTime, 0.3);
   audio.rig.engine(speed / MAX_SPEED, live && settings.sound, Math.max(0, input.throttle), input.steer);
   overrunTick(state === 'race' && settings.sound);
+  turboTick(state === 'race' && settings.sound, speed / MAX_SPEED, Math.max(0, input.throttle));
+}
+// ---- turbo: boost builds with throttle and revs (with lag), whistling as it spools; lift off on boost and the
+// blow-off valve dumps it with a "pssssh" ----
+const turbo = { b: 0, last: 0, lastThr: 0, nodes: null };
+function turboNodes() {
+  const a = audio.ctx, n = {};
+  const nb = a.createBuffer(1, a.sampleRate * 2, a.sampleRate), d = nb.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  n.noise = nb;
+  n.out = a.createGain(); n.out.gain.value = 0; n.out.connect(audio.master);
+  n.w1 = a.createOscillator(); n.w2 = a.createOscillator(); n.w1.type = n.w2.type = 'sine';
+  const wg = a.createGain(); wg.gain.value = 0.6; n.w1.connect(wg); n.w2.connect(wg); wg.connect(n.out);
+  n.air = a.createBufferSource(); n.air.buffer = nb; n.air.loop = true;
+  n.airF = a.createBiquadFilter(); n.airF.type = 'bandpass'; n.airF.Q.value = 2.5;
+  n.airG = a.createGain(); n.airG.gain.value = 0.5; n.air.connect(n.airF); n.airF.connect(n.airG); n.airG.connect(n.out);
+  n.w1.start(); n.w2.start(); n.air.start();
+  return n;
+}
+function turboTick(live, p, thr) {
+  const a = audio.ctx; if (!a) return;
+  const now = a.currentTime, dt = Math.min(0.1, Math.max(0, now - (turbo.last || now))); turbo.last = now;
+  const on = live && audio.era !== 0;                                     // the PC speaker has no turbo
+  if (!on && !turbo.nodes) { turbo.lastThr = thr; return; }
+  if (!turbo.nodes) turbo.nodes = turboNodes();
+  const n = turbo.nodes, fire = engineFire(p, 5, thr);
+  const target = on ? thr * clamp((fire - 120) / 230, 0, 1) : 0;         // needs revs and throttle to make boost
+  turbo.b += (target - turbo.b) * Math.min(1, dt * (target > turbo.b ? 0.9 : 3));   // lag on the way up
+  // blow-off valve: lift on boost
+  if (on && turbo.lastThr > 0.3 && thr <= 0.05 && turbo.b > 0.35) { blowOff(now, turbo.b); turbo.b *= 0.15; }
+  turbo.lastThr = thr;
+  const b = turbo.b, lofi = audio.era <= 2 ? 0.7 : 1;
+  n.w1.frequency.setTargetAtTime(900 + 2600 * b, now, 0.05); n.w2.frequency.setTargetAtTime((900 + 2600 * b) * 1.26, now, 0.05);   // blade-pass + its partner
+  n.airF.frequency.setTargetAtTime(600 + 1600 * b, now, 0.05);
+  n.out.gain.setTargetAtTime(on ? 0.026 * Math.pow(b, 1.6) * lofi : 0, now, 0.06);
+}
+function blowOff(t, b) {                                                   // "pssssh": a burst of air, falling in pitch
+  const a = audio.ctx, n = turbo.nodes, s = a.createBufferSource(), f = a.createBiquadFilter(), hp = a.createBiquadFilter(), g = a.createGain();
+  s.buffer = n.noise; s.playbackRate.value = 1;
+  f.type = 'bandpass'; f.Q.value = 0.9; f.frequency.setValueAtTime(4200, t); f.frequency.exponentialRampToValueAtTime(1500, t + 0.55);
+  hp.type = 'highpass'; hp.frequency.value = 700;
+  const v = (0.18 + 0.22 * b) * (audio.era <= 2 ? 0.75 : 1), dur = 0.35 + 0.35 * b;
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + 0.012);
+  g.gain.setTargetAtTime(v * 0.55, t + 0.03, 0.05); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  s.connect(f); f.connect(hp); hp.connect(g); g.connect(audio.master); s.start(t, Math.random()); s.stop(t + dur + 0.05);
 }
 // ---- overrun: lift off from speed and the V8 gurgles and pops through the exhaust, thinning out as revs fall ----
 const ovr = { until: 0, next: 0, start: 0, lastThr: 0, p: 0 };
