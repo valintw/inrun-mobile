@@ -2178,6 +2178,31 @@ function updateEngine() {
   }
   if (audio.rainG) audio.rainG.gain.setTargetAtTime(era >= 2 && live && settings.sound ? rainAmt * 0.11 : 0, audio.ctx.currentTime, 0.3);
   audio.rig.engine(speed / MAX_SPEED, live && settings.sound, Math.max(0, input.throttle), input.steer);
+  overrunTick(state === 'race' && settings.sound);
+}
+// ---- overrun: lift off from speed and the V8 gurgles and pops through the exhaust, thinning out as revs fall ----
+const ovr = { until: 0, next: 0, start: 0, lastThr: 0, p: 0 };
+function overrunTick(live) {
+  const a = audio.ctx, thr = input.throttle, p = speed / MAX_SPEED;
+  if (!a || !live || audio.era === 0) { ovr.until = 0; ovr.lastThr = thr; return; }        // the PC speaker can't gurgle
+  const now = a.currentTime;
+  if (ovr.lastThr > 0.3 && thr <= 0.05 && p > 0.35) { ovr.start = now; ovr.until = now + 0.7 + 1.3 * p; ovr.next = now + 0.05; ovr.p = p; }
+  if (thr > 0.2) ovr.until = 0;                                                              // back on the throttle
+  ovr.lastThr = thr;
+  while (ovr.until && ovr.next < Math.min(ovr.until, now + 0.12)) {
+    const k = (ovr.next - ovr.start) / (ovr.until - ovr.start);
+    gurgle(ovr.next, k, ovr.p);
+    ovr.next += (0.03 + Math.random() * 0.06) * (1 + 3 * k * k);                             // busy at first, then sparse
+  }
+}
+function gurgle(t, k, p) {
+  const a = audio.ctx, vol = (1 - 0.75 * k) * (0.35 + 0.3 * p) * (audio.era <= 2 ? 0.8 : 1);
+  noiseHit(t, 0.045 + Math.random() * 0.05, vol * 0.9, 'lowpass', 180 + Math.random() * 280);   // the gurgle: a wet low "blub"
+  const o = a.createOscillator(), g = a.createGain(), f0 = 55 + Math.random() * 45;          // and a thump of pressure behind it
+  o.frequency.setValueAtTime(f0 * 1.6, t); o.frequency.exponentialRampToValueAtTime(f0, t + 0.05);
+  g.gain.setValueAtTime(vol * 0.5, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+  o.connect(g); g.connect(audio.master); o.start(t); o.stop(t + 0.1);
+  if (Math.random() < 0.18 * (1 - k)) noiseHit(t + 0.01, 0.022, vol * 0.8, 'bandpass', 1600 + Math.random() * 1800);   // the odd sharp pop
 }
 
 /* ======================================================================
