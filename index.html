@@ -2195,14 +2195,29 @@ function overrunTick(live) {
     ovr.next += (0.03 + Math.random() * 0.06) * (1 + 3 * k * k);                             // busy at first, then sparse
   }
 }
+function bubble(t, vol, f0, f1, dur, q) {                // a wet "bloop": resonant noise whose pitch drops as it decays
+  const a = audio.ctx, s = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain();
+  s.buffer = audio.reverb.buffer; f.type = 'bandpass'; f.Q.value = q;
+  f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.006); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  s.connect(f); f.connect(g); g.connect(audio.master); s.start(t, Math.random()); s.stop(t + dur + 0.02);
+}
 function gurgle(t, k, p) {
   const a = audio.ctx, vol = (1 - 0.75 * k) * (0.35 + 0.3 * p) * (audio.era <= 2 ? 0.8 : 1);
-  noiseHit(t, 0.045 + Math.random() * 0.05, vol * 0.9, 'lowpass', 180 + Math.random() * 280);   // the gurgle: a wet low "blub"
-  const o = a.createOscillator(), g = a.createGain(), f0 = 55 + Math.random() * 45;          // and a thump of pressure behind it
+  noiseHit(t, 0.045 + Math.random() * 0.05, vol * 0.7, 'lowpass', 180 + Math.random() * 280);   // the low "blub"
+  const bf = 260 + Math.random() * 260;
+  bubble(t, vol * 2.2, bf * 1.5, bf * 0.55, 0.05 + Math.random() * 0.05, 7);                    // wet: a bubble on top
+  if (Math.random() < 0.45) bubble(t + 0.018 + Math.random() * 0.02, vol * 1.6, bf * 1.3, bf * 0.5, 0.045, 8);   // blub-blub
+  const o = a.createOscillator(), g = a.createGain(), f0 = 55 + Math.random() * 45;          // a thump of pressure behind it
   o.frequency.setValueAtTime(f0 * 1.6, t); o.frequency.exponentialRampToValueAtTime(f0, t + 0.05);
   g.gain.setValueAtTime(vol * 0.5, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
   o.connect(g); g.connect(audio.master); o.start(t); o.stop(t + 0.1);
-  if (Math.random() < 0.18 * (1 - k)) noiseHit(t + 0.01, 0.022, vol * 0.8, 'bandpass', 1600 + Math.random() * 1800);   // the odd sharp pop
+  if (Math.random() < 0.6 * (1 - 0.5 * k)) {                                                  // crackle: a little cluster of ticks
+    const n = 2 + Math.floor(Math.random() * 4);
+    for (let i = 0, tt = t + 0.008; i < n; i++, tt += 0.006 + Math.random() * 0.016)
+      noiseHit(tt, 0.004 + Math.random() * 0.007, vol * (0.5 + Math.random() * 0.5), 'bandpass', 2600 + Math.random() * 3200);
+  }
+  if (Math.random() < 0.28 * (1 - k)) noiseHit(t + 0.01, 0.022, vol * 0.9, 'bandpass', 1600 + Math.random() * 1800);   // and the odd sharp pop
 }
 
 /* ======================================================================
