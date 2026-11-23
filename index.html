@@ -2191,7 +2191,7 @@ function turboNodes() {
   n.noise = nb;
   n.out = a.createGain(); n.out.gain.value = 0; n.out.connect(audio.master);
   n.w1 = a.createOscillator(); n.w2 = a.createOscillator(); n.w1.type = n.w2.type = 'sine';
-  const wg = a.createGain(); wg.gain.value = 0.7; n.w1.connect(wg); n.w2.connect(wg); wg.connect(n.out);
+  const wg = a.createGain(); wg.gain.value = 0.6; n.w1.connect(wg); n.w2.connect(wg); wg.connect(n.out);
   n.air = a.createBufferSource(); n.air.buffer = nb; n.air.loop = true;
   n.airF = a.createBiquadFilter(); n.airF.type = 'bandpass'; n.airF.Q.value = 2.5;
   n.airG = a.createGain(); n.airG.gain.value = 0.5; n.air.connect(n.airF); n.airF.connect(n.airG); n.airG.connect(n.out);
@@ -2211,9 +2211,9 @@ function turboTick(live, p, thr) {
   if (on && turbo.lastThr > 0.3 && thr <= 0.05 && turbo.b > 0.35) { blowOff(now, turbo.b); turbo.b *= 0.15; }
   turbo.lastThr = thr;
   const b = turbo.b, lofi = audio.era <= 2 ? 0.7 : 1;
-  n.w1.frequency.setTargetAtTime(1500 + 5200 * b, now, 0.05); n.w2.frequency.setTargetAtTime((1500 + 5200 * b) * 1.503, now, 0.05);   // blade-pass + its partner
-  n.airF.frequency.setTargetAtTime(900 + 2600 * b, now, 0.05);
-  n.out.gain.setTargetAtTime(on ? 0.05 * Math.pow(b, 1.6) * lofi : 0, now, 0.06);
+  n.w1.frequency.setTargetAtTime(900 + 2600 * b, now, 0.05); n.w2.frequency.setTargetAtTime((900 + 2600 * b) * 1.26, now, 0.05);   // blade-pass + its partner
+  n.airF.frequency.setTargetAtTime(600 + 1600 * b, now, 0.05);
+  n.out.gain.setTargetAtTime(on ? 0.026 * Math.pow(b, 1.6) * lofi : 0, now, 0.06);
 }
 function blowOff(t, b) {                                                   // "pssssh": a burst of air, falling in pitch
   const a = audio.ctx, n = turbo.nodes, s = a.createBufferSource(), f = a.createBiquadFilter(), hp = a.createBiquadFilter(), g = a.createGain();
