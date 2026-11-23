@@ -23,11 +23,11 @@ def render_hi(rpm, cycles, seed):
     f_fire = rpm / 15; per_cycle = int(round(sr * 8 / f_fire)); L = per_cycle * cycles; f_fire = sr * 8 / per_cycle
     t = np.arange(L) / sr
     note = np.zeros(L)
-    for k in range(1, 22):
-        f = k * f_fire
+    for k in range(1, 44):
+        f = k * f_fire / 2                    # the note sits on half the firing rate, like the low-rev burble, so the crossfade doesn't jump an octave
         if f > 5000: break
         a = k ** -0.75 * (1 + 0.6 * np.exp(-((f - 1100) / 500) ** 2))      # natural roll-off + brass formant
-        if k <= 2: a *= 1.25                                                  # weight in the fundamental and 2nd
+        if k <= 2: a *= 1.25                                                  # weight in the half-order note and the firing rate
         note += a * np.cos(2 * np.pi * f * t + rng.uniform(0, 6.28))
     # firing-by-firing strength: the bank pattern plus per-cylinder spread (fixed, so it loops) = growl
     bank = np.array([1 if c == 'L' else 0 for c in 'LRRLRLLR'])
