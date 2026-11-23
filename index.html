@@ -2185,6 +2185,42 @@ function updateEngine() {
   overrunTick(state === 'race' && settings.sound);
   shiftTick(state === 'race' && settings.sound);
   turboTick(state === 'race' && settings.sound, speed / MAX_SPEED, Math.max(0, input.throttle));
+  tyreTick(state === 'race' && settings.sound, speed / MAX_SPEED, input.throttle);
+}
+// ---- tyres: screech under hard braking, a chirp of wheelspin when you floor it in 1st (and a little in 2nd) ----
+const tyre = { nodes: null };
+function tyreNodes() {
+  const a = audio.ctx, n = {};
+  const nb = a.createBuffer(1, a.sampleRate * 2, a.sampleRate), d = nb.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  n.src = a.createBufferSource(); n.src.buffer = nb; n.src.loop = true;
+  n.f1 = a.createBiquadFilter(); n.f1.type = 'bandpass'; n.f1.Q.value = 9;
+  n.f2 = a.createBiquadFilter(); n.f2.type = 'bandpass'; n.f2.Q.value = 7;
+  n.g2 = a.createGain(); n.g2.gain.value = 0.6;
+  n.out = a.createGain(); n.out.gain.value = 0;
+  n.src.connect(n.f1); n.src.connect(n.f2); n.f2.connect(n.g2);
+  n.f1.connect(n.out); n.g2.connect(n.out); n.out.connect(audio.master);
+  n.lfo = a.createOscillator(); n.lfo.frequency.value = 9; n.lfoG = a.createGain(); n.lfoG.gain.value = 70;   // the rubber's wobble
+  n.lfo.connect(n.lfoG); n.lfoG.connect(n.f1.frequency); n.lfoG.connect(n.f2.frequency);
+  n.src.start(); n.lfo.start();
+  return n;
+}
+function tyreTick(live, p, thr) {
+  const a = audio.ctx; if (!a) return;
+  const on = live && audio.era !== 0 && Math.abs(playerX) <= 1;          // no screech on the grass (or from the PC speaker)
+  let brake = 0, spin = 0;
+  if (on && thr < -0.6 && p > 0.15) brake = ((-thr - 0.6) / 0.4) * Math.min(1, (p - 0.15) / 0.25);
+  if (on && thr > 0.7) {
+    const k = (thr - 0.7) / 0.3;
+    if (p < 0.2) spin = k * (1 - 0.6 * p / 0.2);                          // 1st gear: proper wheelspin
+    else if (p < 0.4) spin = k * 0.35 * (1 - (p - 0.2) / 0.2);            // 2nd: a little chirp
+  }
+  if (!tyre.nodes) { if (!brake && !spin) return; tyre.nodes = tyreNodes(); }
+  const n = tyre.nodes, now = a.currentTime, lvl = Math.max(brake, spin);
+  const base = brake >= spin ? 1050 + 300 * p : 1400 + 500 * p;          // braking screech sits lower than wheelspin
+  n.f1.frequency.setTargetAtTime(base, now, 0.05); n.f2.frequency.setTargetAtTime(base * 2.08, now, 0.05);
+  n.lfo.frequency.setTargetAtTime(7 + 6 * lvl, now, 0.1);
+  n.out.gain.setTargetAtTime(lvl * (brake >= spin ? 1.5 : 0.7) * (audio.era <= 2 ? 0.7 : 1), now, lvl > 0 ? 0.04 : 0.09);
 }
 // ---- turbo: boost builds with throttle and revs (with lag), whistling as it spools; lift off on boost and the
 // blow-off valve dumps it with a "pssssh" ----
