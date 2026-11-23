@@ -1159,9 +1159,10 @@ function buildTrack(skipAlpine = false) {
 const WANTED_ERA = 5, ERA_FIRST = [0, 1, 2, 3, 4, 5], ERA_LOOP = [3, 2, 1, 0, 5, 1, 2, 3, 4, 5];
 const eraForLap = (l) => l < ERA_FIRST.length ? ERA_FIRST[l] : ERA_LOOP[(l - ERA_FIRST.length) % ERA_LOOP.length];
 const wantedBefore = (l) => { let n = 0; for (let i = 0; i < l; i++) if (eraForLap(i) === WANTED_ERA) n++; return n; };
-const MAX_CARS = 150, TRAFFIC_TOP = 0.8;                // keep the car count phone-friendly and traffic slower than you
+const MAX_CARS = 300, TRAFFIC_TOP = 0.8;                // keep the car count phone-friendly and traffic slower than you
 let trafficLevel = 0;
-const trafficScale = () => Math.pow(1.2, trafficLevel);
+// traffic runs the same way you do, so faster traffic means fewer cars to pass: the count grows faster than the speed
+const trafficScale = () => Math.pow(1.2, trafficLevel), trafficCount = () => Math.min(MAX_CARS, Math.round(N_CARS * Math.pow(1.5, trafficLevel)));
 function makeCar(R, zFn) {
   const offset = [-2/3, 0, 2/3][Math.floor(R()*3)] + (R() - 0.5) * 0.15;
   const z = zFn();
@@ -1200,7 +1201,7 @@ function gangGiveUp() {
 }
 const gangArrivalPoint = () => Math.max(0.15, 0.75 - 0.2 * wantedBefore(lap));
 function gangIncoming() {
-  removeGang(); bust.arriveAt = gangArrivalPoint(); bust.warned = false; bust.attempts = 0; bust.boxing = false; bust.gaveUp = false;
+  removeGang(); bust.entryTime = timeLeft; bust.arriveAt = gangArrivalPoint(); bust.warned = false; bust.attempts = 0; bust.boxing = false; bust.gaveUp = false;
   toast('A GANG IS HUNTING FOR YOUR CAR — FINISH THE LAP!');
 }
 function removeGang() {
@@ -1286,7 +1287,7 @@ function raiseTraffic() {                               // called after each WAN
   trafficLevel++;
   const R = rng((Math.random() * 1e9) | 0);
   for (const c of cars) { c.speed0 = Math.min(TRAFFIC_TOP * MAX_SPEED, c.speed0 * 1.2); c.speed = Math.min(c.speed, c.speed0); }
-  const want = Math.min(MAX_CARS, Math.round(N_CARS * trafficScale())), pz = position + PLAYER_Z;
+  const want = trafficCount(), pz = position + PLAYER_Z;
   while (cars.length < want) makeCar(R, () => {          // new cars appear well away from you
     let z; do { z = Math.floor(R() * segments.length) * SEG_LEN; } while (Math.abs(zDelta(z - pz)) < 60 * SEG_LEN);
     return z;
@@ -1296,7 +1297,7 @@ function resetCars() {
   for (const s of segments) s.cars.length = 0;
   cars = [];
   const R = rng((Math.random() * 1e9) | 0);
-  const count = Math.min(MAX_CARS, Math.round(N_CARS * trafficScale()));
+  const count = trafficCount();
   for (let n = 0; n < count; n++) makeCar(R, () => Math.floor((0.04 + R() * 0.95) * segments.length) * SEG_LEN);
 }
 // Swap between the full circuit and the WANTED circuit (no Alpine Pass). Only ever done at the start line.
@@ -2481,14 +2482,15 @@ function update(dt) {
       stagesCleared++;
       const wasWanted = !!ERAS[era].bonus;
       if (wrapped) lap++;
-      const bonus = Math.max(28, 46 - stagesCleared);          // 1 s less per checkpoint, never below 28 s
+      const bonus = wasWanted ? 0 : Math.max(28, 46 - stagesCleared);   // 1 s less per checkpoint, never below 28 s (none while the clock is frozen)
       timeLeft += bonus; score += 2500 * stagesCleared;
-      setMsg(wrapped ? 'LAP ' + lap + ' COMPLETE!' : 'CHECKPOINT!', '+' + bonus + ' SEC  ·  ' + THEMES[curStage].name); msgTimer = 2.5;
+      setMsg(wrapped ? 'LAP ' + lap + ' COMPLETE!' : 'CHECKPOINT!', (bonus ? '+' + bonus + ' SEC  ·  ' : '') + THEMES[curStage].name); msgTimer = 2.5;
       sfxCheckpoint();
       // each lap moves one era along: up to HD, then back down to EGA, and round again
       if (wrapped && setEra(eraForLap(lap))) { announceEra(); setTrackFor(era); }
-      if (wrapped && wasWanted) { removeGang(); score += 25000; timeLeft += 20; setMsg('YOU SURVIVED!', '+25,000 &middot; +20 SEC'); msgTimer = 3;
-        raiseTraffic(); toast('TRAFFIC +20% · SPEED +20%'); }
+      if (wrapped && wasWanted) { removeGang(); score += 25000; timeLeft = (bust.entryTime != null ? bust.entryTime : timeLeft) + 30;   // your time going in, plus 30 s
+        setMsg('YOU SURVIVED!', '+25,000 &middot; +30 SEC'); msgTimer = 3;
+        raiseTraffic(); toast('MORE TRAFFIC: +50% CARS \u00B7 +20% SPEED'); }
       if (wrapped && ERAS[era].bonus) gangIncoming();
     }
   }

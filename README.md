@@ -19,7 +19,7 @@ direction ends with the WANTED survival lap (EGA → Amiga → VGA → SVGA → 
 | 4 | 1996 · SVGA | 480 lines, smooth scaling, shaded sprites and true colour |
 | 5 | Today · HD | **real-time 3D** (three.js / WebGL): a glTF hero car (metallic-flake clearcoat paint, real wheels and interior), modelled traffic with clearcoat paint and reflections, 3D palms, pines, cacti, rocks, billboards, street lamps and lit skyscrapers, sun lighting with soft shadows, fog, filmic tone mapping, bloom and a chase camera |
 
-Every WANTED lap you survive adds 20% more traffic, driving 20% faster. Checkpoint time bonuses start at 45 s and
+Every WANTED lap you survive adds 50% more traffic (up to 300 cars), driving 20% faster. Checkpoint time bonuses start at 45 s and
 drop by 1 s per checkpoint, never below 28 s. The 3D engine downloads in the background after the page loads (from jsDelivr); if WebGL isn't available the HD era falls back to the 2D renderer. The title screen cycles through all five eras.
 
 ## Sound through the eras
@@ -58,8 +58,7 @@ front, another beside you or the road edge) at low speed and you're **BUSTED**: 
 stopped — the gang climb out, haul you onto the tarmac, bash you with baseball caps and wheelspin off in your car
 (game over). Get back up to speed and you break free. The gang only gets so many tries at boxing you in — 3 on the first WANTED lap, 4 on the
 second and so on — shake them off that many times and they give up and pull over. Ram a pickup at speed and it goes flying — spun round, bounced up
-the road and out of the chase for a few seconds. Finish the lap for
-+25,000 points and +20 s, and the eras head off the other way with busier traffic. Start straight in it with `?era=6`.
+the road and out of the chase for a few seconds. Checkpoints add no time on the WANTED lap; finish it for +25,000 points and your entry time plus 30 s, and the eras head off the other way with busier traffic. Start straight in it with `?era=6`.
 
 ## Time bonus & traffic
 - When the clock drops below 10 seconds, a glowing **+20 s stopwatch** drops onto the road ahead at a random moment
