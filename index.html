@@ -2383,11 +2383,12 @@ function update(dt) {
   else if (thr < 0) speed += BRAKE * -thr * dt;
   else speed += DECEL * dt;
 
+  recoverTick(dt, over);
   const offroad = playerX < -1 || playerX > 1;
   if (offroad) {
     if (speed > OFF_LIMIT) speed += OFF_DECEL * dt;
     if (speed > 1000 && Math.random() < 0.6) dust(playerX < 0 ? -1 : 1);
-    for (const sp of playerSeg.sprites) {
+    if (!recover.on) for (const sp of playerSeg.sprites) {
       const sd = SPR[sp.k][sp.i];
       if (sp.banner || !sd.collide) continue;
       const sw = sd.worldW / ROAD_W;
@@ -2591,6 +2592,38 @@ function updateCars(dt) {
   for (const car of cars) syncCarSeg(car);
 }
 let lastCrash = -1;
+// ---- stuck off the road: once the car has stopped (or keeps hitting the scenery) with no wheel on the tarmac,
+// it's eased back sideways until one wheel is on the road and nothing trackside is in the way ----
+const recover = { t: 0, on: false, target: 0 };
+function sideObstacle(x) {                     // would the car hit a roadside object at lateral position x, here or just ahead?
+  const pw = PLAYER_W / ROAD_W, N = segments.length, base = findSegment(position + PLAYER_Z).index;
+  for (let k = -1; k <= 4; k++) for (const sp of segments[(base + k + N) % N].sprites) {
+    const sd = SPR[sp.k][sp.i];
+    if (sp.banner || !sd.collide) continue;
+    const sw = sd.worldW / ROAD_W, ox = sd.ox !== undefined ? sd.ox : (sp.offset < 0 ? -1 : 0);
+    if (overlap(x, pw * 1.15, sp.offset + sw * (ox + 0.5), sw * sd.collide, 1)) return true;
+  }
+  return false;
+}
+function recoverTick(dt, over) {
+  const pw = PLAYER_W / ROAD_W, side = playerX < 0 ? -1 : 1;
+  if (over || state !== 'race') { recover.on = false; recover.t = 0; return; }
+  if (recover.on) {                            // glide back towards the road
+    playerVX = 0; speed = Math.min(speed, MAX_SPEED * 0.05);
+    const d = recover.target - playerX, step = 1.8 * dt;
+    if (Math.abs(d) <= step) { playerX = recover.target; recover.on = false; recover.t = 0; toast('BACK ON THE ROAD'); }
+    else playerX += Math.sign(d) * step;
+    return;
+  }
+  const fullyOff = Math.abs(playerX) - pw / 2 > 1;                    // not a wheel on the tarmac
+  const stuck = speed < MAX_SPEED * 0.06 || (performance.now() - lastCrash < 1500 && speed <= OFF_LIMIT);
+  recover.t = fullyOff && stuck ? recover.t + dt : 0;
+  if (recover.t > 0.9) {
+    let x = side * (1 + pw / 4);                                       // inner wheels a quarter-car onto the road
+    while (sideObstacle(x) && Math.abs(x) > 0.05) x -= side * 0.05;     // ...further in if something's in the way
+    recover.target = x; recover.on = true;
+  }
+}
 function crash() {
   shake = 0.35;
   const now = performance.now();
@@ -4075,7 +4108,7 @@ async function startGame() {
     const ok = await sensorAsk;
     if (!ok && isTouch) { setMode('touch'); toast('TILT PERMISSION DENIED — TOUCH CONTROLS ON'); }
   }
-  position = 0; speed = 0; playerX = 0; playerVX = 0; bonus.active = bonus.armed = bonus.done = false; timeLeft = START_TIME; score = 0; stagesCleared = 0; curStage = 0; topSpeed = 0;
+  position = 0; speed = 0; playerX = 0; playerVX = 0; recover.on = false; recover.t = 0; bonus.active = bonus.armed = bonus.done = false; timeLeft = START_TIME; score = 0; stagesCleared = 0; curStage = 0; topSpeed = 0;
   themeFrom = themeTo = 0; themeBlend = 1; bgOffset = 0; particles.length = 0;
   { const qe0 = parseInt(new URLSearchParams(location.search).get('era'), 10); let l0 = 0; if (qe0 > 1 && qe0 <= N_ERAS) while (eraForLap(l0) !== qe0 - 1) l0++; setTrackFor(eraForLap(l0)); }
   const qs = parseInt(new URLSearchParams(location.search).get('stage'), 10);
